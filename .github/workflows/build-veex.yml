@@ -98,7 +98,15 @@ jobs:
           for d in "$APP"/*.lproj; do
             [ -d "$d" ] && printf '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n' > "$d/InfoPlist.strings"
           done
-          sips -g pixelWidth -g pixelHeight "$APP/LaunchLogo.png"
+      - name: Ver plist
+        run: |
+          python3 - "$APP/Info.plist" <<'PY'
+          import sys, plistlib
+          p = plistlib.load(open(sys.argv[1],'rb'))
+          for k in ('UILaunchScreen','UILaunchStoryboardName','UIUserInterfaceStyle'):
+              print(k, '=', p.get(k, '(ausente)'))
+          PY
+          ls -la "$APP" | grep -iE "launch|storyboard"
       - name: Inyectar
         run: |
           set -e
