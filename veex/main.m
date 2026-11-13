@@ -12,6 +12,19 @@ static void vx_log(NSString *s) {
     if (f) { fprintf(f, "%s\n", s.UTF8String); fclose(f); }
 }
 
+static void vx_hold(int n) {
+    if (!vxWin || n > 40) return;
+    for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
+        if (![sc isKindOfClass:[UIWindowScene class]]) continue;
+        for (UIWindow *w in ((UIWindowScene *)sc).windows) {
+            if (w != vxWin && !w.isHidden) w.hidden = YES;
+        }
+    }
+    [vxWin makeKeyAndVisible];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ vx_hold(n + 1); });
+}
+
 static void vx_attach(void) {
     if (vxWin) return;
     for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
@@ -20,10 +33,11 @@ static void vx_attach(void) {
         if (ws.activationState == UISceneActivationStateUnattached) continue;
         vxWin = [[UIWindow alloc] initWithWindowScene:ws];
         vxWin.windowLevel = UIWindowLevelAlert + 1;
-        vxWin.backgroundColor = UIColor.whiteColor;
+        vxWin.backgroundColor = UIColor.blackColor;
         vxWin.rootViewController = VXMakePanel();
         [vxWin makeKeyAndVisible];
         vx_log(@"ventana arriba");
+        vx_hold(0);
         return;
     }
 }
@@ -33,9 +47,8 @@ static id vx_hook_init(id self, SEL _cmd, UIWindowScene *scene) {
     if (!vxWin) {
         UIWindow *win = (UIWindow *)w;
         UIView *cover = [[UIView alloc] initWithFrame:win.bounds];
-        cover.backgroundColor = UIColor.whiteColor;
+        cover.backgroundColor = UIColor.blackColor;
         cover.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        cover.tag = 9911;
         [win addSubview:cover];
         dispatch_async(dispatch_get_main_queue(), ^{ vx_attach(); });
     }
