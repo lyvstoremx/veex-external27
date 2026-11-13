@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
 extern UIViewController *VXMakePanel(void);
 
