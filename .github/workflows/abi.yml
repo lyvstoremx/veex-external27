@@ -23,18 +23,17 @@ jobs:
           cp "$BIN" ../bin
       - name: Contexto
         run: |
+          set +e
           llvm-objdump --macho -d bin > dis.txt 2>&1
-          wc -l dis.txt
-          L=$(grep -n "bl .*_tunnel_create_rppairing_multihost" dis.txt | head -1 | cut -d: -f1)
-          C=$(grep -n "^10056ab58:" dis.txt | head -1 | cut -d: -f1)
           {
-            echo "### antes de la llamada (linea $L)"
-            sed -n "$((L-170)),$((L+4))p" dis.txt
+            echo "### registro"
+            perl -ne 'BEGIN{$a=hex("100032000");$b=hex("100032c40")} if(/^([0-9a-f]+):/){$x=hex($1); print if $x>=$a && $x<=$b}' dis.txt \
+              | grep -E "x3|x7|x22|0xc8|0xf0|0x1cc|bl |sub[[:space:]]+sp|stp[[:space:]]+x29" | sed -n '1,70p'
             echo
-            echo "### callee (linea $C)"
-            sed -n "${C},$((C+90))p" dis.txt
+            echo "### callee"
+            perl -ne 'BEGIN{$a=hex("10056ab58");$b=hex("10056aba8")} if(/^([0-9a-f]+):/){$x=hex($1); print if $x>=$a && $x<=$b}' dis.txt | sed -n '1,90p'
             echo
-            echo "### simbolos C"
+            echo "### simbolos"
             llvm-nm -gU bin | grep -E " T _[a-z]" | grep -iE "tunnel|rsd|provider|pair|afc|file_service|house" | sed -n '1,60p'
           } > abi2.txt 2>&1
           cat abi2.txt >> $GITHUB_STEP_SUMMARY
