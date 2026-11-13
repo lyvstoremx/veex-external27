@@ -1,5 +1,4 @@
 #import <UIKit/UIKit.h>
-#import <objc/runtime.h>
 
 extern UIViewController *VXMakePanel(void);
 
@@ -13,6 +12,7 @@ static UIImage *vxLogo(void) {
 static UIViewController *vxBlack(void) {
     UIViewController *vc = [UIViewController new];
     vc.view.backgroundColor = UIColor.blackColor;
+    vc.view.tag = 9911;
     UIImageView *iv = [[UIImageView alloc] initWithImage:vxLogo()];
     iv.contentMode = UIViewContentModeScaleAspectFit;
     iv.translatesAutoresizingMaskIntoConstraints = NO;
@@ -45,11 +45,9 @@ static void vx_watch(int n) {
 
         for (UIWindow *w in ws.windows) {
             if (w == vxWin) continue;
-            if (![w.rootViewController isKindOfClass:NSClassFromString(@"VXBlackVC")]) {
-                UIViewController *b = vxBlack();
-                object_setClass(b, NSClassFromString(@"VXBlackVC"));
-                w.rootViewController = b;
-            }
+            UIViewController *r = w.rootViewController;
+            if (r && r.view.tag == 9911) continue;
+            w.rootViewController = vxBlack();
         }
     }
 
