@@ -44,7 +44,14 @@ enum VXEngine {
         var out: CFTypeRef?
         guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
               let arr = out as? [[String: Any]] else { return [] }
-        return arr.compactMap { $0[kSecAttrService as String] as? String }
+        var seen: [String] = []
+        for d in arr {
+            let s = (d[kSecAttrService as String] as? String) ?? "?"
+            let a = (d[kSecAttrAccount as String] as? String) ?? ""
+            let line = a.isEmpty ? s : "\(s) · \(a)"
+            if !seen.contains(line) { seen.append(line) }
+        }
+        return seen
     }
 }
 
@@ -52,7 +59,9 @@ struct VXEngineCard: View {
     @State private var syms: [(String, Bool)] = []
     @State private var pair: String?
     @State private var pin: String?
+    @State private var items: [String] = []
     @State private var ran = false
+    @State private var listed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -76,6 +85,19 @@ struct VXEngineCard: View {
                         .padding(.vertical, 7)
                         .background(VX.red)
                 }
+                Button {
+                    items = VXEngine.dump()
+                    listed = true
+                } label: {
+                    Text("ENUMERAR")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1.6)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(VX.slab)
+                        .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
+                }
             }
 
             if ran {
@@ -91,12 +113,32 @@ struct VXEngineCard: View {
                     }
                 }
                 Rectangle().fill(VX.line).frame(height: 1).padding(.vertical, 2)
-                line("PAIRING", pair ?? "no encontrado · \(VXEngine.dump().count) items")
+                line("PAIRING", pair ?? "no encontrado")
                 line("PIN", pin)
                 Text("verde = símbolo disponible · rojo = falta")
                     .font(.system(size: 7, weight: .heavy))
                     .tracking(0.5)
                     .foregroundStyle(VX.dim)
+            }
+
+            if listed {
+                Rectangle().fill(VX.line).frame(height: 1).padding(.vertical, 2)
+                Text("KEYCHAIN · \(items.count)")
+                    .font(.system(size: 8, weight: .black))
+                    .tracking(2)
+                    .foregroundStyle(VX.dim)
+                if items.isEmpty {
+                    Text("sin acceso o vacío")
+                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(VX.red)
+                } else {
+                    ForEach(items, id: \.self) { i in
+                        Text(i)
+                            .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(VX.paper)
+                            .lineLimit(1)
+                    }
+                }
             }
         }
         .padding(12)
