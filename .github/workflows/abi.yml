@@ -17,26 +17,26 @@ jobs:
         run: |
           cd old
           IPA=$(ls *.ipa | head -1)
-          echo "ipa: $IPA"
           unzip -q "$IPA" -d x
           APP=$(ls -d x/Payload/*.app | head -1)
           BIN=$(find "$APP" -maxdepth 1 -type f -size +5M | head -1)
           cp "$BIN" ../bin
-          ls -l ../bin
       - name: Contexto
         run: |
           {
-            echo "===== VENTANA ANTES DE LA LLAMADA ====="
-            llvm-objdump --macho -d --start-address=0x100032800 --stop-address=0x100032c40 bin
+            echo "### registro"
+            llvm-objdump --macho -d --start-address=0x100032000 --stop-address=0x100032c40 bin \
+              | grep -E "x3|x7|x22|0xc8|0xf0|0x1cc|bl " | head -60
             echo
-            echo "===== PROLOGO ====="
+            echo "### prologo"
             A=$(llvm-nm --defined-only --extern-only bin | grep " _tunnel_create_rppairing_multihost" | awk '{print $1}')
             echo "addr: $A"
-            llvm-objdump --macho -d --start-address=0x$A --stop-address=0x$(printf '%x' $((0x$A + 0x60))) bin
+            llvm-objdump --macho -d --start-address=0x$A --stop-address=0x$(printf '%x' $((0x$A + 0x50))) bin | head -30
             echo
-            echo "===== SIMBOLOS ====="
-            llvm-nm --defined-only --extern-only bin | grep -iE "provider|shared|session|pairing|tunnel|rsd" | head -90
+            echo "### simbolos"
+            llvm-nm --defined-only --extern-only bin | grep -iE "provider|shared|session|pairing|tunnel|rsd" | head -40
           } > abi2.txt 2>&1
+          cat abi2.txt >> $GITHUB_STEP_SUMMARY
           wc -l abi2.txt
       - uses: actions/upload-artifact@v4
         with:
