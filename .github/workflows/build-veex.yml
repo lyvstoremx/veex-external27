@@ -38,7 +38,9 @@ jobs:
       - name: Inyectar
         run: |
           set -e
-          pip3 install --quiet lief
+          python3 -m venv "$RUNNER_TEMP/venv"
+          source "$RUNNER_TEMP/venv/bin/activate"
+          pip install --quiet lief
           mkdir -p "$APP/Frameworks"
           cp "$GITHUB_WORKSPACE/build/libveex.dylib" "$APP/Frameworks/"
           python3 - "$APP/$EXE" <<'PY'
