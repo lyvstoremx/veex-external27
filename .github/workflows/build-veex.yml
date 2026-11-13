@@ -1,0 +1,56 @@
+name: build-veex
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Traer recursos
+        run: |
+          set -e
+          git clone --depth 1 https://github.com/lyvstoremx/VEEX-EXTERNAL "$RUNNER_TEMP/src"
+      - name: Compilar
+        run: |
+          set -e
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          mkdir -p build
+          xcrun --sdk iphoneos clang -target arm64-apple-ios16.0 -isysroot "$SDK" \
+            -fobjc-arc -O2 -c veex/main.m -o build/main.o
+          xcrun --sdk iphoneos swiftc -target arm64-apple-ios16.0 -sdk "$SDK" -O \
+            -emit-library -o build/libveex.dylib veex/VXPanel.swift build/main.o \
+            -framework UIKit -framework SwiftUI
+          codesign --force --sign - build/libveex.dylib
+      - name: Preparar
+        run: |
+          set -e
+          W="$RUNNER_TEMP/w" && mkdir -p "$W" && cd "$W"
+          curl -sSL -o base.ipa "https://github.com/lyvstoremx/VEEX-EXTERNAL/raw/main/3105ios27.ipa"
+          unzip -o base.ipa >/dev/null
+          APP=$(find "$W/Payload" -maxdepth 1 -name '*.app' | head -1)
+          EXE=$(python3 -c "import plistlib,sys;print(plistlib.load(open(sys.argv[1],'rb'))['CFBundleExecutable'])" "$APP/Info.plist")
+          mkdir -p "$APP/veex"
+          cp -R "$RUNNER_TEMP/src/patches/." "$APP/veex/"
+          cp -R "$RUNNER_TEMP/src/voices/." "$APP/veex/"
+          rm -rf "$APP/veex/patches" "$APP/veex/voices"
+          echo "APP=$APP" >> $GITHUB_ENV
+          echo "EXE=$EXE" >> $GITHUB_ENV
+      - name: Inyectar
+        run: |
+          set -e
+          pip3 install --quiet lief
+          mkdir -p "$APP/Frameworks"
+          cp "$GITHUB_WORKSPACE/build/libveex.dylib" "$APP/Frameworks/"
+          python3 - "$APP/$EXE" <<'PY'
+          import lief, sys
+          b = lief.MachO.parse(sys.argv[1]).at(0)
+          b.add_library("@executable_path/Frameworks/libveex.dylib")
+          b.write(sys.argv[1])
+          PY
+          codesign --force --sign - "$APP/Frameworks/libveex.dylib"
+          codesign --force --sign - "$APP"
+          cd "$RUNNER_TEMP/w" && zip -qry "$GITHUB_WORKSPACE/veex.ipa" Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: veex-ipa
+          path: veex.ipa
