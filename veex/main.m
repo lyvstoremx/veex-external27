@@ -3,6 +3,7 @@
 extern UIViewController *VXMakePanel(void);
 
 static UIWindow *vxWin;
+static UIWindow *vxCover;
 static UIView *vxVeil;
 
 static UIImage *vxLogo(void) {
@@ -23,7 +24,7 @@ static void vx_veil(UIView *host) {
         [NSLayoutConstraint activateConstraints:@[
             [iv.centerXAnchor constraintEqualToAnchor:vxVeil.centerXAnchor],
             [iv.centerYAnchor constraintEqualToAnchor:vxVeil.centerYAnchor],
-            [iv.widthAnchor constraintEqualToAnchor:vxVeil.widthAnchor multiplier:0.72]
+            [iv.widthAnchor constraintEqualToAnchor:vxVeil.widthAnchor multiplier:0.55]
         ]];
     }
     if (vxVeil.superview == host) {
@@ -36,15 +37,47 @@ static void vx_veil(UIView *host) {
     [host bringSubviewToFront:vxVeil];
 }
 
+static void vx_cover(void) {
+    if (vxCover) return;
+    vxCover = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+    vxCover.windowLevel = UIWindowLevelAlert + 2;
+    vxCover.backgroundColor = UIColor.blackColor;
+    UIViewController *vc = [[UIViewController alloc] init];
+    vc.view.backgroundColor = UIColor.blackColor;
+    UIImageView *iv = [[UIImageView alloc] initWithImage:vxLogo()];
+    iv.contentMode = UIViewContentModeScaleAspectFit;
+    iv.translatesAutoresizingMaskIntoConstraints = NO;
+    [vc.view addSubview:iv];
+    [NSLayoutConstraint activateConstraints:@[
+        [iv.centerXAnchor constraintEqualToAnchor:vc.view.centerXAnchor],
+        [iv.centerYAnchor constraintEqualToAnchor:vc.view.centerYAnchor],
+        [iv.widthAnchor constraintEqualToAnchor:vc.view.widthAnchor multiplier:0.55]
+    ]];
+    vxCover.rootViewController = vc;
+    vxCover.hidden = NO;
+    [vxCover makeKeyAndVisible];
+}
+
 static void vx_build(UIWindowScene *ws) {
     if (vxWin || !ws) return;
+
     vxWin = [[UIWindow alloc] initWithWindowScene:ws];
     vxWin.windowLevel = UIWindowLevelAlert + 1;
     vxWin.backgroundColor = UIColor.blackColor;
     vxWin.rootViewController = VXMakePanel();
     [vxWin makeKeyAndVisible];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ vxVeil.hidden = YES; });
+
+    if (vxCover) {
+        vxCover.windowScene = ws;
+        vxCover.hidden = NO;
+        [vxCover makeKeyAndVisible];
+    }
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        vxVeil.hidden = YES;
+        vxCover.hidden = YES;
+    });
 }
 
 static void vx_watch(int n) {
@@ -70,6 +103,7 @@ static void vx_watch(int n) {
 
 __attribute__((constructor))
 static void vx_init(void) {
+    vx_cover();
     dispatch_async(dispatch_get_main_queue(), ^{
         vx_watch(0);
         [[NSNotificationCenter defaultCenter]
