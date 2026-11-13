@@ -45,7 +45,7 @@ enum VXSym {
                     let idx = Int(s.n_un.n_strx)
                     guard idx > 0, idx < size, s.n_value != 0 else { continue }
                     guard String(cString: strs.advanced(by: idx)) == want else { continue }
-                    let addr = UInt64(bitPattern: slide) &+ s.n_value
+                    let addr = s.n_value &+ UInt64(bitPattern: Int64(slide))
                     return UnsafeMutableRawPointer(bitPattern: UInt(addr))
                 }
                 return nil
