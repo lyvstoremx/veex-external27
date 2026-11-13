@@ -17,9 +17,9 @@ struct VXPreview: View {
     }
 
     private let marks: [Mark] = [
-        .init(label: "DRAG", lx: 0.13, ly: 0.17, px: 0.40, py: 0.21),
-        .init(label: "PECHO", lx: 0.13, ly: 0.40, px: 0.38, py: 0.36),
-        .init(label: "BALAS MÁGICAS", lx: 0.24, ly: 0.78, px: 0.28, py: 0.62)
+        .init(label: "DRAG", lx: 0.11, ly: 0.16, px: 0.465, py: 0.205),
+        .init(label: "PECHO", lx: 0.11, ly: 0.39, px: 0.462, py: 0.345),
+        .init(label: "BALAS MÁGICAS", lx: 0.19, ly: 0.80, px: 0.30, py: 0.62)
     ]
 
     var body: some View {
@@ -27,13 +27,13 @@ struct VXPreview: View {
             if header {
                 HStack {
                     Text("VISUALIZACIÓN")
-                        .font(.system(size: 10, weight: .heavy))
+                        .font(.system(size: 10, weight: .black))
                         .tracking(4)
                         .foregroundStyle(VX.dim)
                     Spacer()
                     Text("solo referencia")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.28))
+                        .foregroundStyle(VX.dim.opacity(0.7))
                     Button {
                         withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) { angle = 0; base = 0 }
                     } label: {
@@ -50,12 +50,18 @@ struct VXPreview: View {
                 let w = g.size.width
                 let h = g.size.height
                 ZStack {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(.black)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+
                     figure(w: w, h: h)
                     overlay(w: w, h: h)
+
                     Text("arrastra para girar")
                         .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.28))
-                        .position(x: w * 0.5, y: h * 0.985)
+                        .foregroundStyle(Color(white: 0.65))
+                        .position(x: w * 0.5, y: h * 0.965)
                 }
                 .contentShape(Rectangle())
                 .gesture(
@@ -93,13 +99,12 @@ struct VXPreview: View {
             } else {
                 Text("faltan las imágenes")
                     .font(.system(size: 11))
-                    .foregroundStyle(Color(white: 0.4))
+                    .foregroundStyle(Color(white: 0.5))
             }
         }
-        .frame(height: h * 0.94)
+        .frame(height: h * 0.9)
         .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.3)
         .offset(y: sway ? -2 : 2)
-        .shadow(color: .black.opacity(0.85), radius: 14, y: 6)
     }
 
     private func load(_ n: String) -> UIImage? {
@@ -115,10 +120,10 @@ struct VXPreview: View {
                     var line = Path()
                     line.move(to: CGPoint(x: w * m.lx, y: h * m.ly))
                     line.addLine(to: CGPoint(x: w * m.px, y: h * m.py))
-                    ctx.stroke(line, with: .color(VX.red.opacity(0.85)),
-                               style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    ctx.fill(Path(ellipseIn: CGRect(x: w * m.px - 1.8, y: h * m.py - 1.8,
-                                                    width: 3.6, height: 3.6)),
+                    ctx.stroke(line, with: .color(VX.red),
+                               style: StrokeStyle(lineWidth: 1.2, dash: [3, 3]))
+                    ctx.fill(Path(ellipseIn: CGRect(x: w * m.px - 2.4, y: h * m.py - 2.4,
+                                                    width: 4.8, height: 4.8)),
                              with: .color(VX.red))
                 }
             }
@@ -127,11 +132,11 @@ struct VXPreview: View {
                 Text(marks[i].label)
                     .font(.system(size: 9, weight: .black))
                     .tracking(1.6)
-                    .foregroundStyle(VX.paper)
+                    .foregroundStyle(VX.ink)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
-                    .background(Color.black.opacity(0.75))
-                    .overlay(Rectangle().stroke(VX.red, lineWidth: 1))
+                    .background(VX.paper)
+                    .overlay(Rectangle().stroke(VX.red, lineWidth: 1.2))
                     .position(x: w * marks[i].lx, y: h * marks[i].ly)
             }
         }
