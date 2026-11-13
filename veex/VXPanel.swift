@@ -5,11 +5,10 @@ import AVFoundation
 let VXAdmin = "VEEX-LEVI-2004"
 
 enum VXCat: String, CaseIterable, Identifiable {
-    case visual = "VISUAL"
-    case personaje = "PERSONAJE"
-    case armas = "ARMAS"
-    case aimbot = "AIMBOT"
-    case extra = "EXTRA"
+    case visual = "PRUEBA VISUAL"
+    case holo = "HOLOGRAMAS"
+    case aimbot = "AIMBOTS"
+    case extra = "EXTRAS"
     var id: String { rawValue }
 }
 
@@ -40,14 +39,25 @@ final class VXStore: ObservableObject {
         let files = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
         patches = files.filter { $0.hasSuffix(".3105") }.sorted().map { f in
             let n = (f as NSString).deletingPathExtension
-            return VXPatch(id: n, name: n.replacingOccurrences(of: "_", with: " ").uppercased(), cat: cat(of: n))
+            return VXPatch(id: n, name: pretty(n), cat: cat(of: n))
         }
+    }
+
+    private func pretty(_ n: String) -> String {
+        let l = n.lowercased()
+        if l.hasPrefix("holo_personaje") { return "HOLOGRAMA PERSONAJE" }
+        if l.hasPrefix("holo_armas") { return "HOLOGRAMA ARMAS" }
+        if l == "aim_drag" { return "AIM DRAG" }
+        if l == "aim_pecho" { return "AIM PECHO" }
+        if l == "aim_drag_antena" { return "AIM DRAG ANTENA" }
+        if l == "balas_magicas" { return "BALAS MÁGICAS" }
+        if l.hasPrefix("reset") { return "RESET GUEST" }
+        return n.replacingOccurrences(of: "_", with: " ").uppercased()
     }
 
     private func cat(of n: String) -> VXCat {
         let l = n.lowercased()
-        if l.hasPrefix("holo_personaje") { return .personaje }
-        if l.hasPrefix("holo_armas") { return .armas }
+        if l.hasPrefix("holo_") { return .holo }
         if l.hasPrefix("aim_") || l.hasPrefix("balas") { return .aimbot }
         return .extra
     }
@@ -77,7 +87,7 @@ final class VXStore: ObservableObject {
 
 struct VXContact: View {
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 9) {
             link("CONTACTO", "https://t.me/levibrouh", VX.red)
             link("CANAL", "https://t.me/levibrouhs", VX.ink)
         }
@@ -85,13 +95,17 @@ struct VXContact: View {
 
     private func link(_ t: String, _ u: String, _ c: Color) -> some View {
         Link(destination: URL(string: u)!) {
-            Text(t)
-                .font(.system(size: 9, weight: .black))
-                .tracking(3)
-                .foregroundStyle(c == VX.ink ? .white : .white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 11)
-                .background(c)
+            HStack(spacing: 6) {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 10, weight: .bold))
+                Text(t)
+                    .font(.system(size: 9, weight: .black))
+                    .tracking(3)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(c)
         }
     }
 }
@@ -110,18 +124,23 @@ struct VXDoor: View {
 
             VStack(spacing: 0) {
                 Spacer()
-                VXMark(size: 58)
+                VXMark(size: 62)
                 Text("EXTERNAL")
                     .font(.system(size: 9, weight: .black))
-                    .tracking(8)
+                    .tracking(9)
                     .foregroundStyle(VX.red)
                     .padding(.top, 12)
+                Text("PARCHES · AIMBOTS · HOLOGRAMAS")
+                    .font(.system(size: 7, weight: .heavy))
+                    .tracking(2.5)
+                    .foregroundStyle(VX.dim)
+                    .padding(.top, 7)
                 Spacer()
 
                 VStack(spacing: 11) {
-                    Text("CLAVE")
-                        .font(.system(size: 9, weight: .black))
-                        .tracking(5)
+                    Text("CLAVE DE ACCESO")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(4)
                         .foregroundStyle(VX.dim)
 
                     TextField("", text: $key)
@@ -131,7 +150,7 @@ struct VXDoor: View {
                         .multilineTextAlignment(.center)
                         .font(.system(size: 15, weight: .semibold, design: .monospaced))
                         .foregroundStyle(VX.ink)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 13)
                         .background(VX.paper)
                         .overlay(Rectangle().stroke(bad ? VX.red : VX.ink.opacity(0.35), lineWidth: 1.2))
 
@@ -146,17 +165,21 @@ struct VXDoor: View {
                             UINotificationFeedbackGenerator().notificationOccurred(.success)
                         }
                     } label: {
-                        Text("ENTRAR")
-                            .font(.system(size: 12, weight: .black))
-                            .tracking(5)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(VX.red)
+                        HStack(spacing: 8) {
+                            Image(systemName: "lock.open.fill")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("ENTRAR")
+                                .font(.system(size: 12, weight: .black))
+                                .tracking(5)
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background(VX.red)
                     }
                 }
                 .padding(.horizontal, 22)
-                .padding(.vertical, 18)
+                .padding(.vertical, 20)
                 .vxSlab()
                 .padding(.horizontal, 26)
 
@@ -164,7 +187,7 @@ struct VXDoor: View {
 
                 VXContact()
                     .padding(.horizontal, 26)
-                    .padding(.bottom, 26)
+                    .padding(.bottom, 28)
             }
         }
         .onAppear { focus = true }
@@ -173,7 +196,6 @@ struct VXDoor: View {
 
 struct VXPanel: View {
     @ObservedObject var s: VXStore
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack {
@@ -202,27 +224,32 @@ struct VXPanel: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            VXMark(size: 17)
-            Text("EXTERNAL")
-                .font(.system(size: 9, weight: .black))
-                .tracking(4)
-                .foregroundStyle(VX.dim)
-            Spacer()
-            Button { s.mute.toggle(); UserDefaults.standard.set(s.mute, forKey: "vx.mute") } label: {
-                Image(systemName: s.mute ? "speaker.slash" : "speaker.wave.2")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(VX.dim)
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                VXMark(size: 17)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("EXTERNAL")
+                        .font(.system(size: 9, weight: .black))
+                        .tracking(4)
+                        .foregroundStyle(VX.ink)
+                    Text("VEEX")
+                        .font(.system(size: 7, weight: .heavy))
+                        .tracking(3)
+                        .foregroundStyle(VX.dim)
+                }
+                Spacer()
+                Button { s.mute.toggle(); UserDefaults.standard.set(s.mute, forKey: "vx.mute") } label: {
+                    Image(systemName: s.mute ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(s.mute ? VX.red : VX.dim)
+                        .frame(width: 30, height: 30)
+                        .overlay(Rectangle().stroke(VX.ink.opacity(0.18), lineWidth: 0.8))
+                }
             }
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(VX.ink)
-            }
+            Rectangle().fill(VX.ink.opacity(0.12)).frame(height: 1)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 14)
-        .padding(.bottom, 12)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
     }
 
     private var tabs: some View {
@@ -237,7 +264,7 @@ struct VXPanel: View {
                             .tracking(2)
                             .foregroundStyle(s.cat == c ? .white : VX.ink.opacity(0.55))
                             .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
+                            .padding(.vertical, 8)
                             .background(s.cat == c ? VX.ink : VX.paper)
                             .overlay(Rectangle().stroke(VX.ink.opacity(0.18), lineWidth: 0.8))
                     }
@@ -245,6 +272,7 @@ struct VXPanel: View {
             }
             .padding(.horizontal, 14)
         }
+        .padding(.top, 10)
         .padding(.bottom, 10)
     }
 
@@ -253,21 +281,25 @@ struct VXPanel: View {
         return HStack(spacing: 11) {
             Rectangle()
                 .fill(active ? VX.green : VX.red)
-                .frame(width: 3, height: 22)
+                .frame(width: 3, height: 24)
             Text(p.name)
                 .font(.system(size: 11, weight: .black))
-                .tracking(1.4)
+                .tracking(1.3)
                 .foregroundStyle(active ? VX.ink : VX.ink.opacity(0.6))
             Spacer()
             Button {
                 s.toggle(p)
             } label: {
-                Text(active ? "ON" : "OFF")
-                    .font(.system(size: 9, weight: .black))
-                    .tracking(2)
-                    .foregroundStyle(.white)
-                    .frame(width: 52, height: 28)
-                    .background(active ? VX.green : VX.red)
+                HStack(spacing: 4) {
+                    Image(systemName: active ? "checkmark" : "power")
+                        .font(.system(size: 8, weight: .black))
+                    Text(active ? "ON" : "OFF")
+                        .font(.system(size: 9, weight: .black))
+                        .tracking(1.5)
+                }
+                .foregroundStyle(.white)
+                .frame(width: 58, height: 28)
+                .background(active ? VX.green : VX.red)
             }
         }
         .padding(.horizontal, 11)
@@ -277,19 +309,26 @@ struct VXPanel: View {
 
     private var footer: some View {
         VStack(spacing: 9) {
+            Rectangle().fill(VX.ink.opacity(0.12)).frame(height: 1)
             HStack {
-                Button("BLOQUEAR") { s.lock() }
-                    .font(.system(size: 8, weight: .black)).tracking(3)
+                Button {
+                    s.lock()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "lock.fill").font(.system(size: 8, weight: .bold))
+                        Text("BLOQUEAR").font(.system(size: 8, weight: .black)).tracking(3)
+                    }
                     .foregroundStyle(VX.dim)
+                }
                 Spacer()
                 Text("\(s.on.count) ACTIVOS")
                     .font(.system(size: 8, weight: .black)).tracking(2)
                     .foregroundStyle(VX.green)
             }
+            .padding(.top, 8)
             VXContact()
         }
         .padding(.horizontal, 16)
-        .padding(.top, 10)
         .padding(.bottom, 14)
     }
 }
