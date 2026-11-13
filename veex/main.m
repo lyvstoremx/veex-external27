@@ -5,6 +5,7 @@ extern UIViewController *VXMakePanel(void);
 
 static UIWindow *vxWin;
 static IMP vxOrigInit;
+static BOOL vxCreating;
 
 static void vx_log(NSString *s) {
     NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
@@ -13,15 +14,18 @@ static void vx_log(NSString *s) {
 }
 
 static void vx_hold(int n) {
-    if (!vxWin || n > 40) return;
+    if (!vxWin || n > 60) return;
     for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
         if (![sc isKindOfClass:[UIWindowScene class]]) continue;
         for (UIWindow *w in ((UIWindowScene *)sc).windows) {
-            if (w != vxWin && !w.isHidden) w.hidden = YES;
+            if (w != vxWin) {
+                w.hidden = YES;
+                w.alpha = 0;
+            }
         }
     }
     [vxWin makeKeyAndVisible];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.03 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{ vx_hold(n + 1); });
 }
 
@@ -31,7 +35,9 @@ static void vx_attach(void) {
         if (![sc isKindOfClass:[UIWindowScene class]]) continue;
         UIWindowScene *ws = (UIWindowScene *)sc;
         if (ws.activationState == UISceneActivationStateUnattached) continue;
+        vxCreating = YES;
         vxWin = [[UIWindow alloc] initWithWindowScene:ws];
+        vxCreating = NO;
         vxWin.windowLevel = UIWindowLevelAlert + 1;
         vxWin.backgroundColor = UIColor.blackColor;
         vxWin.rootViewController = VXMakePanel();
@@ -44,12 +50,10 @@ static void vx_attach(void) {
 
 static id vx_hook_init(id self, SEL _cmd, UIWindowScene *scene) {
     id w = ((id (*)(id, SEL, UIWindowScene *))vxOrigInit)(self, _cmd, scene);
-    if (!vxWin) {
+    if (!vxCreating) {
         UIWindow *win = (UIWindow *)w;
-        UIView *cover = [[UIView alloc] initWithFrame:win.bounds];
-        cover.backgroundColor = UIColor.blackColor;
-        cover.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        [win addSubview:cover];
+        win.hidden = YES;
+        win.alpha = 0;
         dispatch_async(dispatch_get_main_queue(), ^{ vx_attach(); });
     }
     return w;
