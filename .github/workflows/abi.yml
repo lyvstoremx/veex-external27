@@ -26,15 +26,15 @@ jobs:
           set +e
           llvm-objdump --macho -d bin > dis.txt 2>&1
           {
-            echo "### registro"
-            perl -ne 'BEGIN{$a=hex("100032000");$b=hex("100032c40")} if(/^([0-9a-f]+):/){$x=hex($1); print if $x>=$a && $x<=$b}' dis.txt \
-              | grep -E "x3|x7|x22|0xc8|0xf0|0x1cc|bl |sub[[:space:]]+sp|stp[[:space:]]+x29" | sed -n '1,70p'
+            echo "### origen de x3"
+            perl -ne 'BEGIN{$a=hex("1000323fc");$b=hex("100032bb8")} if(/^([0-9a-f]+):/){$x=hex($1); print if $x>=$a && $x<=$b}' dis.txt \
+              | grep -E "0x140|x3|x22|x21|x19|bl " | sed -n '1,70p'
             echo
-            echo "### callee"
-            perl -ne 'BEGIN{$a=hex("10056ab58");$b=hex("10056aba8")} if(/^([0-9a-f]+):/){$x=hex($1); print if $x>=$a && $x<=$b}' dis.txt | sed -n '1,90p'
+            echo "### prologo real"
+            perl -ne 'BEGIN{$a=hex("10056ab00");$b=hex("10056aba8")} if(/^([0-9a-f]+):/){$x=hex($1); print if $x>=$a && $x<=$b}' dis.txt | sed -n '1,60p'
             echo
-            echo "### simbolos"
-            llvm-nm -gU bin | grep -E " T _[a-z]" | grep -iE "tunnel|rsd|provider|pair|afc|file_service|house" | sed -n '1,60p'
+            echo "### fail"
+            perl -ne 'BEGIN{$a=hex("10056ac00");$b=hex("10056ad00")} if(/^([0-9a-f]+):/){$x=hex($1); print if $x>=$a && $x<=$b}' dis.txt | sed -n '1,70p'
           } > abi2.txt 2>&1
           cat abi2.txt >> $GITHUB_STEP_SUMMARY
           wc -l abi2.txt
