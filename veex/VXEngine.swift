@@ -98,20 +98,31 @@ enum VXEngine {
         return seen
     }
 
-    static func files() -> [String] {
+    static func findPairing() -> [String] {
         var out: [String] = []
         let home = NSHomeDirectory()
-        let subs = ["", "/Documents", "/Library", "/Library/Application Support",
-                    "/Library/Preferences", "/Library/Caches", "/tmp"]
-        for sub in subs {
-            guard let e = try? FileManager.default.contentsOfDirectory(atPath: home + sub) else { continue }
-            for f in e.prefix(30) {
-                if f.lowercased().contains("pair") || f.lowercased().contains("rpp") || f.lowercased().contains("3105") {
-                    out.append("» " + (sub.isEmpty ? "~" : "~" + sub) + "/" + f)
-                }
+        guard let e = FileManager.default.enumerator(
+            at: URL(fileURLWithPath: home),
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return ["sin acceso"] }
+        var n = 0
+        for case let u as URL in e {
+            n += 1
+            if n > 9000 { break }
+            let low = u.lastPathComponent.lowercased()
+            let short = u.path.replacingOccurrences(of: home, with: "~")
+            if low.contains("pair") || low.contains("rpp") {
+                out.append("» " + short)
+                continue
             }
-            for f in e.prefix(30) { out.append((sub.isEmpty ? "~" : "~" + sub) + "/" + f) }
+            guard let h = try? FileHandle(forReadingFrom: u),
+                  let d = try? h.read(upToCount: 12),
+                  let s = String(data: d, encoding: .ascii) else { continue }
+            try? h.close()
+            if s.contains("RPPairing") { out.append("MAGIC » " + short) }
         }
+        out.append("revisados: \(n)")
         return out
     }
 }
@@ -157,7 +168,7 @@ struct VXEngineCard: View {
                         .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
                 }
                 Button {
-                    items = VXEngine.files()
+                    items = VXEngine.findPairing()
                     listed = true
                 } label: {
                     Text("ARCHIVOS")
