@@ -1,0 +1,40 @@
+name: abi2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  abi2:
+    runs-on: macos-14
+    steps:
+      - name: Repo
+        run: |
+          git clone --depth 1 https://github.com/lyvstoremx/VEEX-EXTERNAL old
+      - name: Extraer
+        run: |
+          cd old
+          IPA=$(ls *.ipa | head -1)
+          echo "ipa: $IPA"
+          unzip -q "$IPA" -d x
+          APP=$(ls -d x/Payload/*.app | head -1)
+          EXE=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$APP/Info.plist")
+          cp "$APP/$EXE" ../bin
+          lipo -info ../bin
+      - name: Desensamblar
+        run: |
+          otool -tvV bin > dis.txt
+          wc -l dis.txt
+      - name: Contexto
+        run: |
+          {
+            echo "===== ANTES DE LA LLAMADA ====="
+            grep -n -B 170 "bl _tunnel_create_rppairing_multihost" dis.txt | head -210
+            echo
+            echo "===== SIMBOLOS ====="
+            nm -gU bin | grep -iE "provider|shared|session|default|current|pairing|tunnel|rsd" | head -90
+          } > abi2.txt 2>&1
+          wc -l abi2.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: abi2
+          path: abi2.txt
