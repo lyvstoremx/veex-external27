@@ -114,10 +114,10 @@ jobs:
           cp patches/*.3105 "$APP/veex/" 2>/dev/null || true
           cp voices/*.mp3 "$APP/veex/" 2>/dev/null || true
           cp keys.json "$APP/veex/keys.json" 2>/dev/null || true
-          cp IMG_5364.png "$APP/veex/vx_front.png" 2>/dev/null || true
-          cp IMG_5365.png "$APP/veex/vx_back.png" 2>/dev/null || true
-          cp IMG_5364.png "$APP/veex/vx_left.png" 2>/dev/null || true
-          cp IMG_5365.png "$APP/veex/vx_right.png" 2>/dev/null || true
+          cp IMG_5352.png "$APP/veex/vx_front.png" 2>/dev/null || true
+          cp IMG_5350.png "$APP/veex/vx_back.png" 2>/dev/null || true
+          cp IMG_5352.png "$APP/veex/vx_left.png" 2>/dev/null || true
+          cp IMG_5350.png "$APP/veex/vx_right.png" 2>/dev/null || true
           ls "$APP/veex" | wc -l
 
       - name: Nombre y splash
