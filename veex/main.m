@@ -1,9 +1,10 @@
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
 extern UIViewController *VXMakePanel(void);
 
 static UIWindow *vxWin;
-static int vxTries;
+static IMP vxOrigInit;
 
 static void vx_log(NSString *s) {
     NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
@@ -27,22 +28,25 @@ static void vx_attach(void) {
     }
 }
 
+static id vx_hook_init(id self, SEL _cmd, UIWindowScene *scene) {
+    id w = ((id (*)(id, SEL, UIWindowScene *))vxOrigInit)(self, _cmd, scene);
+    if (!vxWin) dispatch_async(dispatch_get_main_queue(), ^{ vx_attach(); });
+    return w;
+}
+
 static void vx_wait(void) {
     vx_attach();
     if (vxWin) return;
-    if (++vxTries > 200) { vx_log(@"sin escena"); return; }
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.03 * NSEC_PER_SEC)),
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.02 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{ vx_wait(); });
 }
 
 __attribute__((constructor))
 static void vx_init(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        [[NSNotificationCenter defaultCenter]
-            addObserverForName:UISceneWillConnectNotification
-                        object:nil
-                         queue:NSOperationQueue.mainQueue
-                    usingBlock:^(NSNotification *n) { vx_attach(); }];
+        Method m = class_getInstanceMethod([UIWindow class], @selector(initWithWindowScene:));
+        vxOrigInit = method_getImplementation(m);
+        method_setImplementation(m, (IMP)vx_hook_init);
         vx_wait();
     });
 }
