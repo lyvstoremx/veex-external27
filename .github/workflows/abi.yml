@@ -19,22 +19,27 @@ jobs:
           APP=$(ls -d work/Payload/*.app | head -1)
           BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
           echo "BIN=$BIN" >> $GITHUB_ENV
-      - name: Desensamblar
+      - name: Exportados
+        run: |
+          set -e
+          : > abi.txt
+          echo "===== EXPORTADOS =====" >> abi.txt
+          nm -gU "$BIN" 2>/dev/null | awk '{print $3}' | grep -Ei 'afc|file_service|tunnel|rsd|pairing|bad_query|mcm|container|heartbeat|idevice|sandbox' | sort -u >> abi.txt || true
+          echo "===== TOTAL =====" >> abi.txt
+          nm -gU "$BIN" 2>/dev/null | wc -l >> abi.txt
+          wc -l abi.txt
+      - name: Llamadas
         run: |
           set -e
           otool -tvV "$BIN" > dis.txt || true
-          wc -l dis.txt
-          : > abi.txt
-          for s in afc_client_connect_rsd file_service_connect_rsd tunnel_create_rppairing_multihost afc_client_free; do
+          for s in afc_client_connect_rsd file_service_connect_rsd; do
             echo "===== $s =====" >> abi.txt
-            for n in $(grep -n "_$s" dis.txt | cut -d: -f1 | head -4); do
-              a=$(( n > 20 ? n - 20 : 1 ))
-              b=$(( n + 8 ))
-              sed -n "${a},${b}p" dis.txt >> abi.txt
+            for n in $(grep -n "_$s" dis.txt | cut -d: -f1 | head -3); do
+              a=$(( n > 22 ? n - 22 : 1 ))
+              sed -n "${a},$(( n + 6 ))p" dis.txt >> abi.txt
               echo "-----" >> abi.txt
             done
           done
-          wc -l abi.txt
       - name: Publicar
         run: |
           git config user.name veex-bot
