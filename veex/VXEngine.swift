@@ -101,9 +101,16 @@ enum VXEngine {
     static func files() -> [String] {
         var out: [String] = []
         let home = NSHomeDirectory()
-        for sub in ["", "/Documents", "/Library"] {
+        let subs = ["", "/Documents", "/Library", "/Library/Application Support",
+                    "/Library/Preferences", "/Library/Caches", "/tmp"]
+        for sub in subs {
             guard let e = try? FileManager.default.contentsOfDirectory(atPath: home + sub) else { continue }
-            for f in e.prefix(25) { out.append((sub.isEmpty ? "~" : "~" + sub) + "/" + f) }
+            for f in e.prefix(30) {
+                if f.lowercased().contains("pair") || f.lowercased().contains("rpp") || f.lowercased().contains("3105") {
+                    out.append("» " + (sub.isEmpty ? "~" : "~" + sub) + "/" + f)
+                }
+            }
+            for f in e.prefix(30) { out.append((sub.isEmpty ? "~" : "~" + sub) + "/" + f) }
         }
         return out
     }
@@ -141,6 +148,19 @@ struct VXEngineCard: View {
                     listed = true
                 } label: {
                     Text("PROBAR")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1.6)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(VX.slab)
+                        .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
+                }
+                Button {
+                    items = VXEngine.files()
+                    listed = true
+                } label: {
+                    Text("ARCHIVOS")
                         .font(.system(size: 8, weight: .black))
                         .tracking(1.6)
                         .foregroundStyle(.white)
