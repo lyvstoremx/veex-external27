@@ -6,6 +6,7 @@ enum VX {
     static let slab = Color(white: 1.0)
     static let dim = Color(white: 0.42)
     static let red = Color(red: 0.78, green: 0.06, blue: 0.08)
+    static let green = Color(red: 0.09, green: 0.62, blue: 0.31)
 }
 
 struct VXNoise: View {
