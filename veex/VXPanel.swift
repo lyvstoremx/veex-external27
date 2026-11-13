@@ -5,11 +5,11 @@ import AVFoundation
 let VXAdmin = "VEEX-LEVI-2004"
 
 enum VXCat: String, CaseIterable, Identifiable {
-    case personaje = "Personaje"
-    case armas = "Armas"
-    case aimbot = "Aimbot"
-    case extra = "Extra"
-    case visual = "Visual"
+    case personaje = "PERSONAJE"
+    case armas = "ARMAS"
+    case aimbot = "AIMBOT"
+    case extra = "EXTRA"
+    case visual = "VISUAL"
     var id: String { rawValue }
 }
 
@@ -40,7 +40,7 @@ final class VXStore: ObservableObject {
         let files = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
         patches = files.filter { $0.hasSuffix(".3105") }.sorted().map { f in
             let n = (f as NSString).deletingPathExtension
-            return VXPatch(id: n, name: n.replacingOccurrences(of: "_", with: " ").capitalized, cat: cat(of: n))
+            return VXPatch(id: n, name: n.replacingOccurrences(of: "_", with: " ").uppercased(), cat: cat(of: n))
         }
     }
 
@@ -84,51 +84,37 @@ struct VXDoor: View {
     var body: some View {
         GeometryReader { g in
             ZStack {
-                metal
+                VX.ink.ignoresSafeArea()
+                VXSmoke().ignoresSafeArea()
+                VXNoise().ignoresSafeArea()
+                VXVignette().ignoresSafeArea()
+
                 VStack(spacing: 0) {
-                    VStack(spacing: 6) {
-                        Text("VEEX")
-                            .font(.system(size: 34, weight: .black))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 2)
-                        Text("PRUEBA VISUAL")
-                            .font(.system(size: 9, weight: .heavy))
-                            .tracking(6)
-                            .foregroundStyle(Color(red: 0.85, green: 0.1, blue: 0.12))
-                    }
-                    .padding(.top, 26)
+                    VXMark(size: 44)
+                        .padding(.top, 24)
+                    Text("PRUEBA VISUAL")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(6)
+                        .foregroundStyle(VX.red)
+                        .padding(.top, 10)
 
                     VXPreview(s: s, header: false)
-                        .frame(height: g.size.height * 0.46)
+                        .frame(height: g.size.height * 0.44)
 
                     plate
-                    Spacer(minLength: 12)
+                    Spacer(minLength: 10)
                 }
             }
         }
         .onAppear { focus = true }
     }
 
-    private var metal: some View {
-        ZStack {
-            LinearGradient(colors: [Color(white: 0.24), Color(white: 0.09), Color(white: 0.19)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            VStack(spacing: 3) {
-                ForEach(0..<90, id: \.self) { _ in
-                    Rectangle().fill(Color.white.opacity(0.035)).frame(height: 1)
-                }
-            }
-            .ignoresSafeArea()
-        }
-        .ignoresSafeArea()
-    }
-
     private var plate: some View {
         VStack(spacing: 12) {
             Text("CLAVE")
-                .font(.system(size: 10, weight: .heavy))
-                .tracking(4)
-                .foregroundStyle(Color(white: 0.55))
+                .font(.system(size: 9, weight: .black))
+                .tracking(5)
+                .foregroundStyle(VX.dim)
 
             TextField("", text: $key)
                 .focused($focus)
@@ -136,12 +122,10 @@ struct VXDoor: View {
                 .autocorrectionDisabled()
                 .multilineTextAlignment(.center)
                 .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white)
+                .foregroundStyle(VX.paper)
                 .padding(.vertical, 12)
-                .background(Color.black.opacity(0.55))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(bad ? Color.red : Color(white: 0.3), lineWidth: 1))
-                .cornerRadius(7)
-                .padding(.horizontal, 26)
+                .background(Color.black.opacity(0.75))
+                .overlay(Rectangle().stroke(bad ? VX.red : Color(white: 0.26), lineWidth: 1))
 
             Button {
                 if !s.validate(key) {
@@ -155,26 +139,18 @@ struct VXDoor: View {
                 }
             } label: {
                 Text("ENTRAR")
-                    .font(.system(size: 13, weight: .heavy))
-                    .tracking(3)
-                    .foregroundStyle(.white)
+                    .font(.system(size: 12, weight: .black))
+                    .tracking(5)
+                    .foregroundStyle(VX.paper)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
-                    .background(Color(red: 0.72, green: 0.07, blue: 0.09))
-                    .cornerRadius(7)
-                    .padding(.horizontal, 26)
+                    .padding(.vertical, 14)
+                    .background(VX.red)
             }
         }
+        .padding(.horizontal, 24)
         .padding(.vertical, 20)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(LinearGradient(colors: [Color(white: 0.16), Color(white: 0.11)],
-                                     startPoint: .top, endPoint: .bottom))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12), lineWidth: 1))
-                .shadow(color: .black.opacity(0.7), radius: 12, y: 6)
-        )
-        .padding(.horizontal, 34)
+        .vxSlab()
+        .padding(.horizontal, 26)
     }
 }
 
@@ -184,26 +160,24 @@ struct VXPanel: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            VX.ink.ignoresSafeArea()
+            VXNoise().ignoresSafeArea()
+            VXVignette().ignoresSafeArea()
+
             VStack(spacing: 0) {
                 header
-                Picker("", selection: $s.cat) {
-                    ForEach(VXCat.allCases) { c in Text(c.rawValue).tag(c) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-
+                tabs
                 if s.cat == .visual {
                     VXPreview(s: s)
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 8) {
+                        LazyVStack(spacing: 6) {
                             ForEach(s.patches.filter { $0.cat == s.cat }) { p in
                                 row(p)
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 4)
                     }
                 }
                 footer
@@ -212,48 +186,83 @@ struct VXPanel: View {
     }
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("VEEX").font(.system(size: 22, weight: .black)).foregroundStyle(.white)
-                Text("EXTERNAL").font(.system(size: 9, weight: .bold)).tracking(5)
-                    .foregroundStyle(Color(red: 0.85, green: 0.1, blue: 0.12))
-            }
+        HStack(alignment: .center) {
+            VXMark(size: 18)
+            Text("EXTERNAL")
+                .font(.system(size: 9, weight: .black))
+                .tracking(4)
+                .foregroundStyle(VX.dim)
             Spacer()
             Button { s.mute.toggle(); UserDefaults.standard.set(s.mute, forKey: "vx.mute") } label: {
                 Image(systemName: s.mute ? "speaker.slash" : "speaker.wave.2")
-                    .foregroundStyle(.white)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(VX.dim)
             }
             Button { dismiss() } label: {
-                Image(systemName: "xmark").foregroundStyle(.white)
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(VX.paper)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+    }
+
+    private var tabs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 5) {
+                ForEach(VXCat.allCases) { c in
+                    Button {
+                        withAnimation(.easeOut(duration: 0.12)) { s.cat = c }
+                    } label: {
+                        Text(c.rawValue)
+                            .font(.system(size: 8, weight: .black))
+                            .tracking(2)
+                            .foregroundStyle(s.cat == c ? VX.paper : VX.dim)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(s.cat == c ? VX.red : Color(white: 0.11))
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+        }
+        .padding(.bottom, 10)
     }
 
     private func row(_ p: VXPatch) -> some View {
-        HStack {
-            Text(p.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+        HStack(spacing: 11) {
+            Rectangle()
+                .fill(s.on.contains(p.id) ? VX.red : Color(white: 0.2))
+                .frame(width: 2, height: 20)
+            Text(p.name)
+                .font(.system(size: 11, weight: .black))
+                .tracking(1.4)
+                .foregroundStyle(s.on.contains(p.id) ? VX.paper : Color(white: 0.55))
             Spacer()
             Toggle("", isOn: Binding(get: { s.on.contains(p.id) }, set: { _ in s.toggle(p) }))
                 .labelsHidden()
-                .tint(Color(red: 0.72, green: 0.07, blue: 0.09))
+                .scaleEffect(0.82)
+                .tint(VX.red)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(Color(white: 0.1))
-        .cornerRadius(9)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 10)
+        .vxSlab()
     }
 
     private var footer: some View {
         HStack {
             Button("BLOQUEAR") { s.lock() }
-                .font(.system(size: 11, weight: .heavy)).tracking(2)
-                .foregroundStyle(Color(white: 0.5))
+                .font(.system(size: 8, weight: .black)).tracking(3)
+                .foregroundStyle(VX.dim)
             Spacer()
-            Text("\(s.on.count) activos")
-                .font(.system(size: 11, weight: .semibold)).foregroundStyle(Color(white: 0.4))
+            Text("\(s.on.count) ACTIVOS")
+                .font(.system(size: 8, weight: .black)).tracking(2)
+                .foregroundStyle(VX.red)
         }
-        .padding(16)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 13)
     }
 }
 
@@ -261,7 +270,7 @@ struct VXRoot: View {
     @StateObject private var s = VXStore()
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            VX.ink.ignoresSafeArea()
             if s.unlocked { VXPanel(s: s) } else { VXDoor(s: s) }
         }
         .preferredColorScheme(.dark)
