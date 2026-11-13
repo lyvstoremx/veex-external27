@@ -14,26 +14,24 @@ jobs:
         run: |
           cd old
           IPA=$(ls *.ipa | head -1)
-          echo "ipa: $IPA"
           unzip -q "$IPA" -d x
           APP=$(ls -d x/Payload/*.app | head -1)
           EXE=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$APP/Info.plist")
           cp "$APP/$EXE" ../bin
-          lipo -info ../bin
-      - name: Desensamblar
-        run: |
-          otool -tvV bin > dis.txt
-          wc -l dis.txt
       - name: Contexto
         run: |
           {
-            echo "===== ANTES DE LA LLAMADA ====="
-            grep -n -B 170 "bl _tunnel_create_rppairing_multihost" dis.txt | head -210
+            echo "===== VENTANA ANTES DE LA LLAMADA ====="
+            xcrun llvm-objdump --macho --arch arm64 -d --start-address=0x100032800 --stop-address=0x100032c40 bin
+            echo
+            echo "===== PROLOGO ====="
+            A=$(nm -gU bin | grep " _tunnel_create_rppairing_multihost" | awk '{print $1}')
+            echo "addr: $A"
+            xcrun llvm-objdump --macho --arch arm64 -d --start-address=0x$A --stop-address=0x$(printf '%x' $((0x$A + 0x60))) bin
             echo
             echo "===== SIMBOLOS ====="
             nm -gU bin | grep -iE "provider|shared|session|default|current|pairing|tunnel|rsd" | head -90
           } > abi2.txt 2>&1
-          wc -l abi2.txt
       - uses: actions/upload-artifact@v4
         with:
           name: abi2
