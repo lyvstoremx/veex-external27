@@ -141,6 +141,15 @@ enum VXEngine {
         return out
     }
 
+    static func hex(_ p: UnsafeMutableRawPointer, _ n: Int) -> String {
+        var s = ""
+        for i in 0..<n {
+            s += String(format: "%02x", p.load(fromByteOffset: i, as: UInt8.self))
+            if i % 8 == 7 { s += " " }
+        }
+        return s
+    }
+
     static func tunnel() -> [String] {
         var out: [String] = []
         typealias F = @convention(c) (
@@ -150,15 +159,17 @@ enum VXEngine {
         ) -> Int32
         guard let raw = dlsym(handle, "tunnel_create_rppairing_multihost") else { return ["sin símbolo"] }
         let f = unsafeBitCast(raw, to: F.self)
-        let host = UnsafeMutableRawPointer.allocate(byteCount: 64, alignment: 8)
-        let extra = UnsafeMutableRawPointer.allocate(byteCount: 64, alignment: 8)
-        defer { host.deallocate(); extra.deallocate() }
-        memset(host, 0, 64)
-        memset(extra, 0, 64)
-        let rc = f(host, 16, "airlift-mini", nil, 0, 0, nil, nil, extra, extra, extra)
-        out.append("rc: \(rc)")
-        let h = String(cString: host.assumingMemoryBound(to: CChar.self))
-        out.append("host: \(h.isEmpty ? "-" : h)")
+        let a = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
+        let b = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
+        let c = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
+        defer { a.deallocate(); b.deallocate(); c.deallocate() }
+        memset(a, 0xAA, 256)
+        memset(b, 0xAA, 256)
+        memset(c, 0xAA, 256)
+        let rc = f(a, 16, "airlift-mini", nil, 0, 0, nil, nil, b, c, b)
+        out.append("rc \(rc) · \(String(rc, radix: 16))")
+        out.append("a " + hex(a, 64))
+        out.append("b " + hex(b, 64))
         return out
     }
 }
@@ -281,9 +292,8 @@ struct VXEngineCard: View {
 
             ForEach(tun.indices, id: \.self) { i in
                 Text(tun[i])
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
                     .foregroundStyle(i == 0 ? VX.red : VX.paper)
-                    .lineLimit(1)
             }
         }
         .padding(12)
