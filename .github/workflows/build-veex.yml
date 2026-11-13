@@ -178,9 +178,11 @@ jobs:
           bg.save(sys.argv[2])
           print("master", bg.size)
           PY
-          XC=$RUNNER_TEMP/Assets.xcassets/AppIcon.appiconset
-          rm -rf $RUNNER_TEMP/Assets.xcassets
+          CAT=$RUNNER_TEMP/Assets.xcassets
+          XC=$CAT/AppIcon.appiconset
+          rm -rf $CAT
           mkdir -p "$XC" $RUNNER_TEMP/xcout
+          printf '{\n  "info" : {\n    "author" : "xcode",\n    "version" : 1\n  }\n}\n' > $CAT/Contents.json
           for s in 20 29 40 58 60 76 80 87 120 152 167 180 1024; do
             sips -z $s $s master.png --out "$XC/i$s.png" >/dev/null 2>&1 || true
           done
@@ -201,7 +203,7 @@ jobs:
           print("contents ok")
           PY
           set +e
-          xcrun actool $RUNNER_TEMP/Assets.xcassets \
+          xcrun actool $CAT \
             --compile $RUNNER_TEMP/xcout \
             --platform iphoneos --minimum-deployment-target 16.0 \
             --target-device iphone --target-device ipad \
@@ -215,10 +217,8 @@ jobs:
             cp $RUNNER_TEMP/xcout/Assets.car "$APP/Assets.car"
             echo "Assets.car reemplazado"
           else
-            echo "actool fallo, se dejan iconos sueltos"
-            cp "$XC/i120.png" "$APP/AppIcon60x60@2x.png" 2>/dev/null || true
-            cp "$XC/i180.png" "$APP/AppIcon60x60@3x.png" 2>/dev/null || true
-            cp "$XC/i1024.png" "$APP/iTunesArtwork@2x" 2>/dev/null || true
+            echo "actool fallo"
+            exit 1
           fi
 
       - name: Firmar
