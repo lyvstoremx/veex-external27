@@ -9,6 +9,7 @@ enum VXCat: String, CaseIterable, Identifiable {
     case armas = "Armas"
     case aimbot = "Aimbot"
     case extra = "Extra"
+    case visual = "Visual"
     var id: String { rawValue }
 }
 
@@ -52,8 +53,7 @@ final class VXStore: ObservableObject {
     }
 
     func validate(_ key: String) -> Bool {
-        let k = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard k == VXAdmin else { return false }
+        guard key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == VXAdmin else { return false }
         UserDefaults.standard.set(true, forKey: "vx.unlocked")
         unlocked = true
         return true
@@ -144,6 +144,7 @@ struct VXDoor: View {
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
                     withAnimation(.default) { bad = false }
                 } else {
+                    s.play("on")
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                 }
             } label: {
@@ -187,13 +188,17 @@ struct VXPanel: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
 
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(s.patches.filter { $0.cat == s.cat }) { p in
-                            row(p)
+                if s.cat == .visual {
+                    VXPreview(s: s)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(s.patches.filter { $0.cat == s.cat }) { p in
+                                row(p)
+                            }
                         }
+                        .padding(.horizontal, 16)
                     }
-                    .padding(.horizontal, 16)
                 }
                 footer
             }
