@@ -51,12 +51,13 @@ jobs:
             set -- $pair
             sips -z "$1" "$1" "$SRC" --out "$APP/AppIcon$2.png" >/dev/null
           done
-          rm -rf "$APP/LaunchScreen.storyboardc"
+          rm -rf "$APP"/*.storyboardc "$APP"/*.nib "$APP"/Base.lproj
           python3 - "$APP/Info.plist" <<'PY'
           import sys, plistlib
           p = plistlib.load(open(sys.argv[1], 'rb'))
           p.pop('UILaunchStoryboardName', None)
           p.pop('UILaunchStoryboardFile', None)
+          p.pop('UILaunchStoryboardName~ipad', None)
           p.pop('CFBundleIconName', None)
           p.pop('CFBundleIcons', None)
           p.pop('CFBundleIcons~ipad', None)
