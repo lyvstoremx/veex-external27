@@ -3,26 +3,37 @@
 extern UIViewController *VXMakePanel(void);
 
 static UIWindow *vxWin;
+static UIView *vxVeil;
 
 static UIImage *vxLogo(void) {
     NSString *p = [NSBundle.mainBundle pathForResource:@"LaunchLogo" ofType:@"png"];
     return p ? [UIImage imageWithContentsOfFile:p] : nil;
 }
 
-static UIViewController *vxBlack(void) {
-    UIViewController *vc = [UIViewController new];
-    vc.view.backgroundColor = UIColor.blackColor;
-    vc.view.tag = 9911;
-    UIImageView *iv = [[UIImageView alloc] initWithImage:vxLogo()];
-    iv.contentMode = UIViewContentModeScaleAspectFit;
-    iv.translatesAutoresizingMaskIntoConstraints = NO;
-    [vc.view addSubview:iv];
-    [NSLayoutConstraint activateConstraints:@[
-        [iv.centerXAnchor constraintEqualToAnchor:vc.view.centerXAnchor],
-        [iv.centerYAnchor constraintEqualToAnchor:vc.view.centerYAnchor],
-        [iv.widthAnchor constraintEqualToAnchor:vc.view.widthAnchor multiplier:0.72]
-    ]];
-    return vc;
+static void vx_veil(UIView *host) {
+    if (!host) return;
+    if (!vxVeil) {
+        vxVeil = [[UIView alloc] initWithFrame:host.bounds];
+        vxVeil.backgroundColor = UIColor.blackColor;
+        vxVeil.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        UIImageView *iv = [[UIImageView alloc] initWithImage:vxLogo()];
+        iv.contentMode = UIViewContentModeScaleAspectFit;
+        iv.translatesAutoresizingMaskIntoConstraints = NO;
+        [vxVeil addSubview:iv];
+        [NSLayoutConstraint activateConstraints:@[
+            [iv.centerXAnchor constraintEqualToAnchor:vxVeil.centerXAnchor],
+            [iv.centerYAnchor constraintEqualToAnchor:vxVeil.centerYAnchor],
+            [iv.widthAnchor constraintEqualToAnchor:vxVeil.widthAnchor multiplier:0.72]
+        ]];
+    }
+    if (vxVeil.superview == host) {
+        [host bringSubviewToFront:vxVeil];
+        return;
+    }
+    [vxVeil removeFromSuperview];
+    vxVeil.frame = host.bounds;
+    [host addSubview:vxVeil];
+    [host bringSubviewToFront:vxVeil];
 }
 
 static void vx_build(UIWindowScene *ws) {
@@ -32,6 +43,8 @@ static void vx_build(UIWindowScene *ws) {
     vxWin.backgroundColor = UIColor.blackColor;
     vxWin.rootViewController = VXMakePanel();
     [vxWin makeKeyAndVisible];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ vxVeil.hidden = YES; });
 }
 
 static void vx_watch(int n) {
@@ -45,9 +58,7 @@ static void vx_watch(int n) {
 
         for (UIWindow *w in ws.windows) {
             if (w == vxWin) continue;
-            UIViewController *r = w.rootViewController;
-            if (r && r.view.tag == 9911) continue;
-            w.rootViewController = vxBlack();
+            vx_veil(w.rootViewController.view);
         }
     }
 
