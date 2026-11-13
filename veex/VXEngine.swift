@@ -63,6 +63,20 @@ enum VXEngine {
         return out
     }
 
+    static func prefs() -> [String] {
+        let p = NSHomeDirectory() + "/Library/Preferences/com.apple.mobile.MobileHouseArrest.plist"
+        guard let d = FileManager.default.contents(atPath: p),
+              let obj = (try? PropertyListSerialization.propertyList(from: d, format: nil)) as? [String: Any]
+        else { return ["sin plist o sin acceso"] }
+        return obj.keys.sorted().map { k in
+            let v = obj[k]
+            if let s = v as? String { return "\(k) = texto \(s.count)" }
+            if let x = v as? Data { return "» \(k) = datos \(x.count)" }
+            if let n = v as? Int { return "\(k) = num \(n)" }
+            return "\(k) = otro"
+        }
+    }
+
     private static func keychain(_ service: String) -> String? {
         let q: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -136,10 +150,10 @@ struct VXEngineCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 8) {
+            HStack(spacing: 5) {
                 Text("MOTOR")
                     .font(.system(size: 9, weight: .black))
-                    .tracking(3)
+                    .tracking(2)
                     .foregroundStyle(VX.red)
                 Spacer()
                 Button {
@@ -147,10 +161,10 @@ struct VXEngineCard: View {
                     ran = true
                 } label: {
                     Text("DIAGNÓSTICO")
-                        .font(.system(size: 8, weight: .black))
-                        .tracking(1.6)
+                        .font(.system(size: 7, weight: .black))
+                        .tracking(1)
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
+                        .padding(.horizontal, 7)
                         .padding(.vertical, 7)
                         .background(VX.red)
                 }
@@ -159,10 +173,10 @@ struct VXEngineCard: View {
                     listed = true
                 } label: {
                     Text("PROBAR")
-                        .font(.system(size: 8, weight: .black))
-                        .tracking(1.6)
+                        .font(.system(size: 7, weight: .black))
+                        .tracking(1)
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
+                        .padding(.horizontal, 7)
                         .padding(.vertical, 7)
                         .background(VX.slab)
                         .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
@@ -172,10 +186,23 @@ struct VXEngineCard: View {
                     listed = true
                 } label: {
                     Text("ARCHIVOS")
-                        .font(.system(size: 8, weight: .black))
-                        .tracking(1.6)
+                        .font(.system(size: 7, weight: .black))
+                        .tracking(1)
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 7)
+                        .background(VX.slab)
+                        .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
+                }
+                Button {
+                    items = VXEngine.prefs()
+                    listed = true
+                } label: {
+                    Text("PREFS")
+                        .font(.system(size: 7, weight: .black))
+                        .tracking(1)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
                         .padding(.vertical, 7)
                         .background(VX.slab)
                         .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
