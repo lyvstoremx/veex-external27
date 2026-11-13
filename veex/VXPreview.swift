@@ -5,8 +5,6 @@ struct VXPreview: View {
     var header: Bool = true
 
     @State private var angle: Double = 0
-    @State private var base: Double = 0
-    @State private var sway = false
 
     private struct Mark {
         let label: String
@@ -18,9 +16,9 @@ struct VXPreview: View {
     }
 
     private let marks: [Mark] = [
-        .init(label: "DRAG", lx: 0.11, ly: 0.16, px: 0.465, py: 0.205, note: nil),
-        .init(label: "PECHO", lx: 0.11, ly: 0.39, px: 0.462, py: 0.345, note: nil),
-        .init(label: "BALAS MÁGICAS", lx: 0.19, ly: 0.79, px: 0.30, py: 0.62, note: "bajo tu propio riesgo")
+        .init(label: "DRAG", lx: 0.10, ly: 0.17, px: 0.50, py: 0.215, note: nil),
+        .init(label: "PECHO", lx: 0.10, ly: 0.40, px: 0.50, py: 0.355, note: nil),
+        .init(label: "BALAS MÁGICAS", lx: 0.22, ly: 0.80, px: 0.34, py: 0.63, note: "bajo tu propio riesgo")
     ]
 
     var body: some View {
@@ -36,7 +34,7 @@ struct VXPreview: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(VX.dim.opacity(0.7))
                     Button {
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) { angle = 0; base = 0 }
+                        withAnimation(.easeInOut(duration: 0.2)) { angle = 0 }
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
                             .font(.system(size: 12, weight: .bold))
@@ -50,14 +48,20 @@ struct VXPreview: View {
             GeometryReader { g in
                 let w = g.size.width
                 let h = g.size.height
+                let bw = min(w - 12, (h - 26) * 0.62)
+                let bh = bw / 0.62
+
                 ZStack {
                     Rectangle()
                         .fill(Color(white: 0.11))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
 
-                    figure(w: w, h: h)
-                    overlay(w: w, h: h)
+                    figure(w: bw, h: bh)
+                        .position(x: w * 0.5, y: (h - 18) * 0.5)
+
+                    overlay(w: bw, h: bh)
+                        .position(x: w * 0.5, y: (h - 18) * 0.5)
 
                     Text("arrastra para girar")
                         .font(.system(size: 8, weight: .semibold))
@@ -67,19 +71,15 @@ struct VXPreview: View {
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture()
-                        .onChanged { v in
-                            angle = max(-180, min(180, base + Double(v.translation.width) * 0.6))
-                        }
-                        .onEnded { _ in
-                            let snapped = max(-180, min(180, (angle / 90).rounded() * 90))
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { angle = snapped }
-                            base = snapped
+                        .onEnded { v in
+                            let step: Double = v.translation.width > 40 ? 90 : (v.translation.width < -40 ? -90 : 0)
+                            var next = angle + step
+                            if next > 180 { next -= 360 }
+                            if next < -180 { next += 360 }
+                            withAnimation(.easeInOut(duration: 0.18)) { angle = next }
                         }
                 )
             }
-        }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true)) { sway = true }
         }
     }
 
@@ -103,9 +103,7 @@ struct VXPreview: View {
                     .foregroundStyle(Color(white: 0.45))
             }
         }
-        .frame(height: h * 0.9)
-        .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.3)
-        .offset(y: sway ? -2 : 2)
+        .frame(width: w, height: h)
     }
 
     private func load(_ n: String) -> UIImage? {
@@ -149,6 +147,7 @@ struct VXPreview: View {
                 .position(x: w * marks[i].lx, y: h * marks[i].ly)
             }
         }
+        .frame(width: w, height: h)
         .opacity(vis)
     }
 }
