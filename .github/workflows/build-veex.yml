@@ -25,7 +25,6 @@ jobs:
       - name: Herramientas
         run: |
           set -e
-          brew install ffmpeg || true
           python3 -m venv $RUNNER_TEMP/venv
           source $RUNNER_TEMP/venv/bin/activate
           pip install --upgrade pip
@@ -69,9 +68,9 @@ jobs:
             -target arm64-apple-ios16.0 \
             -emit-library -module-name Veex \
             -o out/libveex.dylib \
-            veex/main.m veex/VXPanel.swift veex/VXPreview.swift veex/VXTheme.swift \
+            veex/main.m veex/VXPanel.swift veex/VXPreview.swift veex/VXTheme.swift veex/VXEngine.swift \
             -framework UIKit -framework Foundation -framework SwiftUI \
-            -framework QuartzCore -framework AVFoundation
+            -framework QuartzCore -framework AVFoundation -framework Security
           lipo -info out/libveex.dylib
           otool -L out/libveex.dylib | head -12
 
