@@ -23,10 +23,10 @@ jobs:
         run: |
           set -e
           : > abi.txt
-          echo "===== TODOS LOS SWIFT =====" >> abi.txt
-          nm -a "$BIN" 2>/dev/null | grep -c '\$s' >> abi.txt || true
-          echo "===== MUESTRA =====" >> abi.txt
-          nm -a "$BIN" 2>/dev/null | grep '\$s' | head -40 >> abi.txt || true
+          echo "===== DEFINIDOS =====" >> abi.txt
+          nm -a "$BIN" 2>/dev/null | grep ' [tT] ' | grep '\$s' | wc -l >> abi.txt || true
+          echo "===== PATCH =====" >> abi.txt
+          nm -a "$BIN" 2>/dev/null | grep ' [tT] ' | grep '\$s' | grep -Ei 'patch|apply|restore|install' | head -80 >> abi.txt || true
       - name: Publicar
         run: |
           git config user.name veex-bot
