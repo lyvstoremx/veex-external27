@@ -24,9 +24,9 @@ jobs:
           set -e
           : > abi.txt
           echo "===== SWIFT =====" >> abi.txt
-          nm -gU "$BIN" 2>/dev/null | awk '{print $3}' | grep -E '^\$s' | grep -Ei 'patch|install|apply|restore|package|transaction|container|device' | sort -u | head -300 >> abi.txt || true
+          nm -gU "$BIN" 2>/dev/null | awk '{print $3}' | grep -E '^_\$s' | grep -Ei 'patch|install|apply|restore|package|transaction|container|device' | sort -u | head -300 >> abi.txt || true
           echo "===== TOTAL SWIFT =====" >> abi.txt
-          nm -gU "$BIN" 2>/dev/null | awk '{print $3}' | grep -cE '^\$s' >> abi.txt || true
+          nm -gU "$BIN" 2>/dev/null | awk '{print $3}' | grep -cE '^_\$s' >> abi.txt || true
       - name: Publicar
         run: |
           git config user.name veex-bot
