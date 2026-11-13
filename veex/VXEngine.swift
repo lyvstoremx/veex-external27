@@ -2,20 +2,65 @@ import SwiftUI
 import Security
 
 enum VXEngine {
+    static let handle = UnsafeMutableRawPointer(bitPattern: -2)
+
     static let symbols = [
+        "bad_query",
+        "bad_query_list",
+        "bad_query_release",
+        "MCMActivateContainerPath",
         "afc_client_connect_rsd",
-        "afc_client_new_with_rsd",
-        "afc_client_free",
-        "file_service_connect_rsd",
-        "tunnel_create_rppairing_multihost",
-        "tunnel_start_tcp",
-        "rsd_handshake",
-        "idevice_rsd_connect"
+        "file_service_connect_rsd"
     ]
 
     static func resolve() -> [(String, Bool)] {
-        let h = UnsafeMutableRawPointer(bitPattern: -2)
-        return symbols.map { ($0, dlsym(h, $0) != nil) }
+        symbols.map { ($0, dlsym(handle, $0) != nil) }
+    }
+
+    private static func sym<T>(_ name: String, _ type: T.Type) -> T? {
+        guard let p = dlsym(handle, name) else { return nil }
+        return unsafeBitCast(p, to: T.self)
+    }
+
+    static func containerPath(_ bundle: String) -> String? {
+        typealias F = @convention(c) (Int32, UnsafePointer<CChar>, Bool, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> UnsafeMutablePointer<CChar>?
+        guard let f = sym("MCMActivateContainerPath", F.self) else { return nil }
+        var err: UnsafeMutablePointer<CChar>? = nil
+        guard let r = f(2, bundle, false, &err), r.pointee != 0 else { return nil }
+        return String(cString: r)
+    }
+
+    static func grant(_ path: String) -> Int64 {
+        typealias F = @convention(c) (UnsafeMutablePointer<CChar>, Bool, UnsafePointer<CChar>?, Bool) -> Int64
+        guard let f = sym("bad_query", F.self) else { return -1 }
+        return f(strdup(path)!, true, nil, false)
+    }
+
+    static func release(_ h: Int64) {
+        typealias F = @convention(c) (Int64) -> Void
+        guard let f = sym("bad_query_release", F.self) else { return }
+        f(h)
+    }
+
+    static func list(_ path: String) -> [String] {
+        typealias F = @convention(c) (UnsafeMutablePointer<CChar>, Int64) -> UnsafeMutablePointer<CChar>?
+        guard let f = sym("bad_query_list", F.self),
+              let r = f(strdup(path)!, 4_000_000) else { return [] }
+        defer { free(r) }
+        return String(cString: r).split(separator: "\n").map(String.init)
+    }
+
+    static func probe(_ bundle: String) -> [String] {
+        var out: [String] = []
+        guard let p = containerPath(bundle) else { return ["sin ruta · \(bundle)"] }
+        out.append("ruta: \(p)")
+        let h = grant(p)
+        out.append("grant: \(h)")
+        if h >= 0 { release(h) }
+        let items = list(p)
+        out.append("items: \(items.count)")
+        out.append(contentsOf: items.prefix(30))
+        return out
     }
 
     private static func keychain(_ service: String) -> String? {
@@ -28,7 +73,6 @@ enum VXEngine {
         var out: CFTypeRef?
         guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
               let d = out as? Data else { return nil }
-        if let s = String(data: d, encoding: .utf8) { return "\(d.count) B · \(s.prefix(24))" }
         return "\(d.count) B"
     }
 
@@ -57,12 +101,9 @@ enum VXEngine {
     static func files() -> [String] {
         var out: [String] = []
         let home = NSHomeDirectory()
-        for sub in ["", "/Documents", "/Library", "/Library/Application Support", "/Library/Preferences"] {
-            let base = home + sub
-            guard let e = try? FileManager.default.contentsOfDirectory(atPath: base) else { continue }
-            for f in e.prefix(25) {
-                out.append((sub.isEmpty ? "~" : "~" + sub) + "/" + f)
-            }
+        for sub in ["", "/Documents", "/Library"] {
+            guard let e = try? FileManager.default.contentsOfDirectory(atPath: home + sub) else { continue }
+            for f in e.prefix(25) { out.append((sub.isEmpty ? "~" : "~" + sub) + "/" + f) }
         }
         return out
     }
@@ -70,9 +111,8 @@ enum VXEngine {
 
 struct VXEngineCard: View {
     @State private var syms: [(String, Bool)] = []
-    @State private var pair: String?
-    @State private var pin: String?
     @State private var items: [String] = []
+    @State private var bundle = ""
     @State private var ran = false
     @State private var listed = false
 
@@ -86,8 +126,6 @@ struct VXEngineCard: View {
                 Spacer()
                 Button {
                     syms = VXEngine.resolve()
-                    pair = VXEngine.pairing()
-                    pin = VXEngine.pin()
                     ran = true
                 } label: {
                     Text("DIAGNÓSTICO")
@@ -99,23 +137,10 @@ struct VXEngineCard: View {
                         .background(VX.red)
                 }
                 Button {
-                    items = VXEngine.dump()
+                    items = VXEngine.probe(bundle.trimmingCharacters(in: .whitespaces))
                     listed = true
                 } label: {
-                    Text("ENUMERAR")
-                        .font(.system(size: 8, weight: .black))
-                        .tracking(1.6)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(VX.slab)
-                        .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
-                }
-                Button {
-                    items = VXEngine.files()
-                    listed = true
-                } label: {
-                    Text("ARCHIVOS")
+                    Text("PROBAR")
                         .font(.system(size: 8, weight: .black))
                         .tracking(1.6)
                         .foregroundStyle(.white)
@@ -125,6 +150,16 @@ struct VXEngineCard: View {
                         .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
                 }
             }
+
+            TextField("bundle id del juego", text: $bundle)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(VX.paper)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 9)
+                .background(Color.black.opacity(0.5))
+                .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
 
             if ran {
                 ForEach(syms, id: \.0) { name, ok in
@@ -139,8 +174,8 @@ struct VXEngineCard: View {
                     }
                 }
                 Rectangle().fill(VX.line).frame(height: 1).padding(.vertical, 2)
-                line("PAIRING", pair ?? "no encontrado")
-                line("PIN", pin)
+                line("PAIRING", VXEngine.pairing())
+                line("PIN", VXEngine.pin())
                 Text("verde = símbolo disponible · rojo = falta")
                     .font(.system(size: 7, weight: .heavy))
                     .tracking(0.5)
@@ -149,12 +184,12 @@ struct VXEngineCard: View {
 
             if listed {
                 Rectangle().fill(VX.line).frame(height: 1).padding(.vertical, 2)
-                Text("LISTADO · \(items.count)")
+                Text("SALIDA · \(items.count)")
                     .font(.system(size: 8, weight: .black))
                     .tracking(2)
                     .foregroundStyle(VX.dim)
                 if items.isEmpty {
-                    Text("sin acceso o vacío")
+                    Text("vacío")
                         .font(.system(size: 8, weight: .semibold, design: .monospaced))
                         .foregroundStyle(VX.red)
                 } else {
