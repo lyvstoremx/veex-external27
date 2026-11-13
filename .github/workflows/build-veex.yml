@@ -49,6 +49,8 @@ jobs:
           b.add_library("@executable_path/Frameworks/libveex.dylib")
           b.write(sys.argv[1])
           PY
+          otool -L "$APP/$EXE" | grep -q libveex && echo "INYECTADA" || { echo "NO INYECTADA"; exit 1; }
+          ls -la "$APP/Frameworks"
           codesign --force --sign - "$APP/Frameworks/libveex.dylib"
           codesign --force --sign - "$APP"
           cd "$RUNNER_TEMP/w" && zip -qry "$GITHUB_WORKSPACE/veex.ipa" Payload
