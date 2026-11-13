@@ -19,27 +19,14 @@ jobs:
           APP=$(ls -d work/Payload/*.app | head -1)
           BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
           echo "BIN=$BIN" >> $GITHUB_ENV
-      - name: Exportados
+      - name: Swift
         run: |
           set -e
           : > abi.txt
-          echo "===== EXPORTADOS =====" >> abi.txt
-          nm -gU "$BIN" 2>/dev/null | awk '{print $3}' | grep -Ei 'afc|file_service|tunnel|rsd|pairing|bad_query|mcm|container|heartbeat|idevice|sandbox' | sort -u >> abi.txt || true
-          echo "===== TOTAL =====" >> abi.txt
-          nm -gU "$BIN" 2>/dev/null | wc -l >> abi.txt
-          wc -l abi.txt
-      - name: Llamadas
-        run: |
-          set -e
-          otool -tvV "$BIN" > dis.txt || true
-          for s in afc_client_connect_rsd file_service_connect_rsd; do
-            echo "===== $s =====" >> abi.txt
-            for n in $(grep -n "_$s" dis.txt | cut -d: -f1 | head -3); do
-              a=$(( n > 22 ? n - 22 : 1 ))
-              sed -n "${a},$(( n + 6 ))p" dis.txt >> abi.txt
-              echo "-----" >> abi.txt
-            done
-          done
+          echo "===== SWIFT =====" >> abi.txt
+          nm -gU "$BIN" 2>/dev/null | awk '{print $3}' | grep -E '^\$s' | grep -Ei 'patch|install|apply|restore|package|transaction|container|device' | sort -u | head -300 >> abi.txt || true
+          echo "===== TOTAL SWIFT =====" >> abi.txt
+          nm -gU "$BIN" 2>/dev/null | awk '{print $3}' | grep -cE '^\$s' >> abi.txt || true
       - name: Publicar
         run: |
           git config user.name veex-bot
