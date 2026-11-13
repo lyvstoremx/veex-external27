@@ -35,11 +35,15 @@ jobs:
         run: |
           set -e
           git clone --depth 1 "$OLD_REPO" $RUNNER_TEMP/old
-          mkdir -p "$GITHUB_WORKSPACE/patches" "$GITHUB_WORKSPACE/voices"
+          mkdir -p "$GITHUB_WORKSPACE/patches" "$GITHUB_WORKSPACE/voices" "$GITHUB_WORKSPACE/engine"
           cp -R $RUNNER_TEMP/old/patches/. "$GITHUB_WORKSPACE/patches/" || true
           cp -R $RUNNER_TEMP/old/voices/. "$GITHUB_WORKSPACE/voices/" || true
           cp $RUNNER_TEMP/old/keys.json "$GITHUB_WORKSPACE/keys.json" || true
-          ls patches | head -20
+          for f in PatchProjectModels PatchPackageCodec PatchProjectLibrary PatchWorkspaceService PatchTransaction; do
+            cp "$RUNNER_TEMP/old/ThreeOneOSFive/helpers/$f.swift" "$GITHUB_WORKSPACE/engine/" || true
+          done
+          echo "motor:"; ls engine
+          echo "parches:"; ls patches | head -20
 
       - name: IPA
         run: |
@@ -68,9 +72,9 @@ jobs:
             -target arm64-apple-ios16.0 \
             -emit-library -module-name Veex \
             -o out/libveex.dylib \
-            veex/main.m veex/VXPanel.swift veex/VXPreview.swift veex/VXTheme.swift veex/VXEngine.swift \
+            veex/main.m veex/*.swift engine/*.swift \
             -framework UIKit -framework Foundation -framework SwiftUI \
-            -framework QuartzCore -framework AVFoundation -framework Security
+            -framework QuartzCore -framework AVFoundation -framework Security -framework CryptoKit
           lipo -info out/libveex.dylib
           otool -L out/libveex.dylib | head -12
 
