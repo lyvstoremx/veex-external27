@@ -79,9 +79,7 @@ final class VXStore: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.now = Date()
-            if let e = self.exp, e <= Date(), self.unlocked {
-                self.unlocked = false
-            }
+            if let e = self.exp, e <= Date(), self.unlocked { self.unlocked = false }
         }
     }
 
@@ -115,6 +113,13 @@ final class VXStore: ObservableObject {
         return .extra
     }
 
+    func note(_ id: String) -> String? {
+        let l = id.lowercased()
+        if l == "balas_magicas" || l.hasPrefix("holo_armas") { return "bajo tu propio riesgo" }
+        if l.hasPrefix("reset") { return "no dejar activado" }
+        return nil
+    }
+
     func check(_ raw: String) -> VXResult {
         let k = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !k.isEmpty else { return .bad }
@@ -127,8 +132,7 @@ final class VXStore: ObservableObject {
         else { return .bad }
 
         guard let s = e.exp else { return .permanent }
-        let f = ISO8601DateFormatter()
-        guard let date = f.date(from: s) else { return .bad }
+        guard let date = ISO8601DateFormatter().date(from: s) else { return .bad }
         return date > Date() ? .timed(date) : .bad
     }
 
@@ -166,9 +170,7 @@ final class VXStore: ObservableObject {
         unlocked = false
     }
 
-    func lock() {
-        unlocked = false
-    }
+    func lock() { unlocked = false }
 
     func left() -> String? {
         guard let e = exp else { return nil }
@@ -231,11 +233,6 @@ struct VXDoor: View {
                     .tracking(9)
                     .foregroundStyle(VX.red)
                     .padding(.top, 12)
-                Text("PARCHES · AIMBOTS · HOLOGRAMAS")
-                    .font(.system(size: 7, weight: .heavy))
-                    .tracking(2.5)
-                    .foregroundStyle(VX.dim)
-                    .padding(.top, 7)
                 Spacer()
 
                 VStack(spacing: 10) {
@@ -255,15 +252,21 @@ struct VXDoor: View {
                         .background(VX.paper)
                         .overlay(Rectangle().stroke(bad ? VX.red : VX.ink.opacity(0.35), lineWidth: 1.2))
 
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(vxIOSSupported() ? VX.green : VX.red)
-                            .frame(width: 6, height: 6)
-                        Text("\(vxIOSLabel()) · \(vxIOSSupported() ? "SOPORTADO" : "NO SOPORTADO")")
-                            .font(.system(size: 8, weight: .black))
-                            .tracking(1.6)
-                            .foregroundStyle(vxIOSSupported() ? VX.green : VX.red)
-                        Spacer()
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("SOPORTADO: 17.0–18.7.10 · 26.0–26.7.2 · 27.0–27.2")
+                            .font(.system(size: 7, weight: .heavy))
+                            .tracking(0.8)
+                            .foregroundStyle(VX.dim)
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(vxIOSSupported() ? VX.green : VX.red)
+                                .frame(width: 6, height: 6)
+                            Text("\(vxIOSLabel()) · \(vxIOSSupported() ? "SOPORTADO" : "NO SOPORTADO")")
+                                .font(.system(size: 8, weight: .black))
+                                .tracking(1.6)
+                                .foregroundStyle(vxIOSSupported() ? VX.green : VX.red)
+                            Spacer()
+                        }
                     }
 
                     if let saved = s.saved {
@@ -427,11 +430,19 @@ struct VXPanel: View {
     private func row(_ p: VXPatch) -> some View {
         let active = s.on.contains(p.id)
         return HStack(spacing: 11) {
-            Rectangle().fill(active ? VX.green : VX.red).frame(width: 3, height: 24)
-            Text(p.name)
-                .font(.system(size: 11, weight: .black))
-                .tracking(1.3)
-                .foregroundStyle(active ? VX.ink : VX.ink.opacity(0.6))
+            Rectangle().fill(active ? VX.green : VX.red).frame(width: 3, height: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(p.name)
+                    .font(.system(size: 11, weight: .black))
+                    .tracking(1.3)
+                    .foregroundStyle(active ? VX.ink : VX.ink.opacity(0.6))
+                if let n = s.note(p.id) {
+                    Text(n)
+                        .font(.system(size: 7, weight: .heavy))
+                        .tracking(0.6)
+                        .foregroundStyle(VX.red)
+                }
+            }
             Spacer()
             Button {
                 s.toggle(p)
