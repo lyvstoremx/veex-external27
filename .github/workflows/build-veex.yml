@@ -48,11 +48,11 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           SRC=$(ls *.ipa 2>/dev/null | head -1 || true)
           if [ -z "$SRC" ]; then SRC=$(ls $RUNNER_TEMP/old/*.ipa 2>/dev/null | head -1 || true); fi
-          if [ -z "$SRC" ] && [ -n "${{ secrets.IPA_URL }}" ]; then
-            curl -fL --retry 3 -o app.ipa "${{ secrets.IPA_URL }}"
-          elif [ -n "$SRC" ]; then
+          if [ -n "$SRC" ]; then
             echo "usando $SRC"
             cp "$SRC" app.ipa
+          elif [ -n "${{ secrets.IPA_URL }}" ]; then
+            curl -fL --retry 3 -o app.ipa "${{ secrets.IPA_URL }}"
           else
             echo "ERROR: no se encontro ninguna .ipa"; exit 1
           fi
@@ -67,7 +67,6 @@ jobs:
           mkdir -p out
           xcrun -sdk iphoneos swiftc \
             -target arm64-apple-ios16.0 \
-            -miphoneos-version-min=16.0 \
             -emit-library -module-name Veex \
             -o out/libveex.dylib \
             veex/main.m veex/VXPanel.swift veex/VXPreview.swift veex/VXTheme.swift \
