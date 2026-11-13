@@ -44,16 +44,16 @@ jobs:
         run: |
           set -e
           test -f "$GITHUB_WORKSPACE/IMG_5384.png" || { echo "falta IMG_5384.png"; exit 1; }
-          CAT="$RUNNER_TEMP/cat.xcassets"
-          mkdir -p "$CAT/AppIcon.appiconset" "$CAT/LaunchLogo.imageset" "$CAT/LaunchBg.colorset"
-
           SRC="$RUNNER_TEMP/base.png"
           sips -p 1360 1360 --padColor 000000 "$GITHUB_WORKSPACE/IMG_5384.png" --out "$SRC" >/dev/null
-          cp "$SRC" "$CAT/AppIcon.appiconset/icon.png"
-          cat > "$CAT/AppIcon.appiconset/Contents.json" <<'JSON'
-          {"images":[{"filename":"icon.png","idiom":"universal","platform":"ios","size":"1024x1024"}],"info":{"author":"xcode","version":1}}
-          JSON
+          rm -f "$APP"/AppIcon*.png
+          for pair in "1024 1024" "180 60x60@3x" "120 60x60@2x" "87 29x29@3x" "80 40x40@2x" "60 40x40@3x" "58 29x29@2x" "40 20x20@2x" "152 76x76@2x" "167 83.5x83.5@2x"; do
+            set -- $pair
+            sips -z "$1" "$1" "$SRC" --out "$APP/AppIcon$2.png" >/dev/null
+          done
 
+          CAT="$RUNNER_TEMP/cat.xcassets"
+          mkdir -p "$CAT/LaunchLogo.imageset" "$CAT/LaunchBg.colorset"
           sips -Z 640 "$SRC" --out "$CAT/LaunchLogo.imageset/logo.png" >/dev/null
           cat > "$CAT/LaunchLogo.imageset/Contents.json" <<'JSON'
           {"images":[{"filename":"logo.png","idiom":"universal","scale":"1x"}],"info":{"author":"xcode","version":1}}
@@ -63,38 +63,54 @@ jobs:
           JSON
 
           OUT="$RUNNER_TEMP/out" && mkdir -p "$OUT"
-          xcrun actool --compile "$OUT" \
-            --platform iphoneos --minimum-deployment-target 16.0 \
-            --app-icon AppIcon --output-partial-info-plist "$RUNNER_TEMP/partial.plist" \
-            "$CAT" >/dev/null
-          test -f "$OUT/Assets.car" || { echo "actool no genero Assets.car"; exit 1; }
-          cp "$OUT/Assets.car" "$APP/Assets.car"
-          rm -f "$APP"/AppIcon*.png
+          set +e
+          xcrun actool --compile "$OUT" --platform iphoneos --minimum-deployment-target 16.0 \
+            --output-partial-info-plist "$RUNNER_TEMP/partial.plist" "$CAT" > "$RUNNER_TEMP/actool.log" 2>&1
+          RC=$?
+          set -e
+          cat "$RUNNER_TEMP/actool.log"
+          if [ $RC -ne 0 ] || [ ! -f "$OUT/Assets.car" ]; then
+            echo "actool fallo, sigo con splash por PNG suelto"
+            sips -Z 640 "$SRC" --out "$APP/LaunchLogo.png" >/dev/null
+            LAUNCH="PNG"
+          else
+            cp "$OUT/Assets.car" "$APP/Assets.car"
+            LAUNCH="CAR"
+          fi
+          echo "LAUNCH=$LAUNCH" >> $GITHUB_ENV
 
           rm -rf "$APP"/*.storyboardc "$APP"/*.nib "$APP"/Base.lproj
-          python3 - "$APP/Info.plist" <<'PY'
+          python3 - "$APP/Info.plist" "$LAUNCH" <<'PY'
           import sys, plistlib
           p = plistlib.load(open(sys.argv[1], 'rb'))
           for k in ('UILaunchStoryboardName', 'UILaunchStoryboardFile',
-                    'UILaunchStoryboardName~ipad', 'CFBundleIcons', 'CFBundleIcons~ipad'):
+                    'UILaunchStoryboardName~ipad', 'CFBundleIconName',
+                    'CFBundleIcons', 'CFBundleIcons~ipad'):
               p.pop(k, None)
-          p['CFBundleIconName'] = 'AppIcon'
-          p['UILaunchScreen'] = {'UIImageName': 'LaunchLogo', 'UIColorName': 'LaunchBg'}
+          if sys.argv[2] == 'CAR':
+              p['UILaunchScreen'] = {'UIImageName': 'LaunchLogo', 'UIColorName': 'LaunchBg'}
+          else:
+              p['UILaunchScreen'] = {'UIImageName': 'LaunchLogo'}
           p['UIUserInterfaceStyle'] = 'Dark'
           p['CFBundleDisplayName'] = 'VEEX'
           p['CFBundleName'] = 'VEEX'
+          p['CFBundleIcons'] = {
+              'CFBundlePrimaryIcon': {
+                  'CFBundleIconFiles': ['AppIcon60x60', 'AppIcon29x29', 'AppIcon40x40']
+              }
+          }
           v = p.get('CFBundleVersion', '1')
           try:
               p['CFBundleVersion'] = str(int(v) + 1)
           except Exception:
               p['CFBundleVersion'] = '2'
           plistlib.dump(p, open(sys.argv[1], 'wb'))
-          print("version", p['CFBundleVersion'])
+          print("version", p['CFBundleVersion'], "splash", sys.argv[2])
           PY
           for d in "$APP"/*.lproj; do
             [ -d "$d" ] && printf '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n' > "$d/InfoPlist.strings"
           done
-          ls -la "$APP/Assets.car"
+          ls -la "$APP" | grep -E "AppIcon|Launch"
       - name: Inyectar
         run: |
           set -e
