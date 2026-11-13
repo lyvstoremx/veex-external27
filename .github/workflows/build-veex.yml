@@ -43,16 +43,23 @@ jobs:
       - name: Nombre e icono
         run: |
           set -e
-          python3 - "$APP/Info.plist" <<'PY'
-          import sys, plistlib
-          p = plistlib.load(open(sys.argv[1], 'rb'))
+          python3 - "$APP" <<'PY'
+          import sys, os, plistlib
+          app = sys.argv[1]
+          ip = os.path.join(app, 'Info.plist')
+          p = plistlib.load(open(ip, 'rb'))
           p.pop('UILaunchStoryboardName', None)
           p.pop('UILaunchStoryboardFile', None)
           p['UILaunchScreen'] = {}
           p['CFBundleDisplayName'] = 'VEEX'
           p['CFBundleName'] = 'VEEX'
-          plistlib.dump(p, open(sys.argv[1], 'wb'))
-          print("nombre y splash listos")
+          plistlib.dump(p, open(ip, 'wb'))
+          for d in os.listdir(app):
+              if d.endswith('.lproj'):
+                  open(os.path.join(app, d, 'InfoPlist.strings'), 'w').write(
+                      '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n')
+                  print("localizado", d)
+          print("nombre listo")
           PY
           ICON="$RUNNER_TEMP/icon.png"
           sips -p 1360 1360 --padColor FFFFFF "$GITHUB_WORKSPACE/IMG_5380.png" --out "$ICON" >/dev/null
@@ -82,8 +89,8 @@ jobs:
           ls -la "$APP/Frameworks"
           codesign --force --sign - "$APP/Frameworks/libveex.dylib"
           codesign --force --sign - "$APP"
-          cd "$RUNNER_TEMP/w" && zip -qry "$GITHUB_WORKSPACE/veex.ipa" Payload
+          cd "$RUNNER_TEMP/w" && zip -qry "$GITHUB_WORKSPACE/VEEX.ipa" Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: veex-ipa
-          path: veex.ipa
+          name: VEEX
+          path: VEEX.ipa
