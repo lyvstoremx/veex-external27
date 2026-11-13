@@ -46,12 +46,13 @@ jobs:
           test -f "$GITHUB_WORKSPACE/IMG_5380.png" || { echo "falta IMG_5380.png"; exit 1; }
           SRC="$RUNNER_TEMP/base.png"
           sips -p 1360 1360 --padColor FFFFFF "$GITHUB_WORKSPACE/IMG_5380.png" --out "$SRC" >/dev/null
+          rm -f "$APP"/AppIcon*.png
           for pair in "1024 1024" "180 60x60@3x" "120 60x60@2x" "87 29x29@3x" "80 40x40@2x" "60 40x40@3x" "58 29x29@2x" "40 20x20@2x" "152 76x76@2x" "167 83.5x83.5@2x"; do
             set -- $pair
             sips -z "$1" "$1" "$SRC" --out "$APP/AppIcon$2.png" >/dev/null
           done
           python3 - "$APP/Info.plist" <<'PY'
-          import sys, plistlib
+          import sys, plistlib, os
           p = plistlib.load(open(sys.argv[1], 'rb'))
           p.pop('UILaunchStoryboardName', None)
           p.pop('UILaunchStoryboardFile', None)
@@ -65,8 +66,13 @@ jobs:
                   'CFBundleIconName': 'AppIcon'
               }
           }
+          v = p.get('CFBundleVersion', '1')
+          try:
+              p['CFBundleVersion'] = str(int(v) + 1)
+          except Exception:
+              p['CFBundleVersion'] = '2'
           plistlib.dump(p, open(sys.argv[1], 'wb'))
-          print("plist e iconos listos")
+          print("version", p['CFBundleVersion'])
           PY
           for d in "$APP"/*.lproj; do
             [ -d "$d" ] && printf '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n' > "$d/InfoPlist.strings"
