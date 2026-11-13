@@ -19,14 +19,19 @@ jobs:
           APP=$(ls -d work/Payload/*.app | head -1)
           BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
           echo "BIN=$BIN" >> $GITHUB_ENV
-      - name: Swift
+      - name: Firmas
         run: |
           set -e
+          otool -tvV "$BIN" > dis.txt || true
           : > abi.txt
-          echo "===== DEFINIDOS =====" >> abi.txt
-          nm -a "$BIN" 2>/dev/null | grep ' [tT] ' | grep '\$s' | wc -l >> abi.txt || true
-          echo "===== PATCH =====" >> abi.txt
-          nm -a "$BIN" 2>/dev/null | grep ' [tT] ' | grep '\$s' | grep -Ei 'patch|apply|restore|install' | head -80 >> abi.txt || true
+          for s in tunnel_create_rppairing_multihost rp_pairing_file_read rp_pairing_file_write rsd_get_services; do
+            echo "===== $s =====" >> abi.txt
+            for n in $(grep -n "_$s" dis.txt | cut -d: -f1 | head -2); do
+              a=$(( n > 26 ? n - 26 : 1 ))
+              sed -n "${a},$(( n + 6 ))p" dis.txt >> abi.txt
+              echo "-----" >> abi.txt
+            done
+          done
       - name: Publicar
         run: |
           git config user.name veex-bot
