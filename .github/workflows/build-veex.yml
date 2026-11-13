@@ -51,19 +51,21 @@ jobs:
             set -- $pair
             sips -z "$1" "$1" "$SRC" --out "$APP/AppIcon$2.png" >/dev/null
           done
+          rm -rf "$APP/LaunchScreen.storyboardc"
           python3 - "$APP/Info.plist" <<'PY'
-          import sys, plistlib, os
+          import sys, plistlib
           p = plistlib.load(open(sys.argv[1], 'rb'))
           p.pop('UILaunchStoryboardName', None)
           p.pop('UILaunchStoryboardFile', None)
+          p.pop('CFBundleIconName', None)
+          p.pop('CFBundleIcons', None)
+          p.pop('CFBundleIcons~ipad', None)
           p['UILaunchScreen'] = {}
           p['CFBundleDisplayName'] = 'VEEX'
           p['CFBundleName'] = 'VEEX'
-          p.pop('CFBundleIconName', None)
           p['CFBundleIcons'] = {
               'CFBundlePrimaryIcon': {
-                  'CFBundleIconFiles': ['AppIcon60x60', 'AppIcon29x29', 'AppIcon40x40'],
-                  'CFBundleIconName': 'AppIcon'
+                  'CFBundleIconFiles': ['AppIcon60x60', 'AppIcon29x29', 'AppIcon40x40']
               }
           }
           v = p.get('CFBundleVersion', '1')
@@ -72,7 +74,7 @@ jobs:
           except Exception:
               p['CFBundleVersion'] = '2'
           plistlib.dump(p, open(sys.argv[1], 'wb'))
-          print("version", p['CFBundleVersion'])
+          print("version", p['CFBundleVersion'], "iconos", p['CFBundleIcons'])
           PY
           for d in "$APP"/*.lproj; do
             [ -d "$d" ] && printf '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n' > "$d/InfoPlist.strings"
