@@ -1,12 +1,14 @@
 //
 //  VXShim.swift
-//  Contenedor y claves para el motor compilado en el dylib.
-//  El contenedor se pide a la app con sus funciones C (MCM + bad_query).
+//  Resolución de contenedor y claves para el motor.
+//  Los símbolos se buscan en la tabla del ejecutable, no con dlsym:
+//  el binario nuevo no los exporta.
 //
 
 import Foundation
 import CryptoKit
 import Darwin
+import MachO
 
 func log(_ msg: String) {
     guard let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
@@ -21,44 +23,90 @@ func log(_ msg: String) {
     }
 }
 
+enum VXSym {
+    static func find(_ name: String) -> UnsafeMutableRawPointer? {
+        guard let hdr = _dyld_get_image_header(0) else { return nil }
+        let slide = _dyld_get_image_vmaddr_slide(0)
+        let base = UnsafeRawPointer(hdr)
+        var cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
+        let want = "_" + name
+
+        for _ in 0..<Int(hdr.pointee.ncmds) {
+            let cmd = cursor.assumingMemoryBound(to: load_command.self)
+            if cmd.pointee.cmd == UInt32(LC_SYMTAB) {
+                let st = cursor.assumingMemoryBound(to: symtab_command.self)
+                let count = Int(st.pointee.nsyms)
+                guard count > 0 else { return nil }
+                let syms = base.advanced(by: Int(st.pointee.symoff)).assumingMemoryBound(to: nlist_64.self)
+                let strs = base.advanced(by: Int(st.pointee.stroff)).assumingMemoryBound(to: CChar.self)
+                let size = Int(st.pointee.strsize)
+                for i in 0..<count {
+                    let s = syms[i]
+                    let idx = Int(s.n_un.n_strx)
+                    guard idx > 0, idx < size, s.n_value != 0 else { continue }
+                    guard String(cString: strs.advanced(by: idx)) == want else { continue }
+                    let addr = UInt64(bitPattern: slide) &+ s.n_value
+                    return UnsafeMutableRawPointer(bitPattern: UInt(addr))
+                }
+                return nil
+            }
+            guard cmd.pointee.cmdsize > 0 else { return nil }
+            cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
+        }
+        return nil
+    }
+
+    static func count() -> Int {
+        guard let hdr = _dyld_get_image_header(0) else { return 0 }
+        let base = UnsafeRawPointer(hdr)
+        var cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
+        for _ in 0..<Int(hdr.pointee.ncmds) {
+            let cmd = cursor.assumingMemoryBound(to: load_command.self)
+            if cmd.pointee.cmd == UInt32(LC_SYMTAB) {
+                return Int(cursor.assumingMemoryBound(to: symtab_command.self).pointee.nsyms)
+            }
+            guard cmd.pointee.cmdsize > 0 else { return 0 }
+            cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
+        }
+        return 0
+    }
+}
+
 enum VXContainers {
+    private typealias PathFn = @convention(c) (
+        UInt64, UnsafeMutableRawPointer, Bool, UnsafeMutablePointer<UnsafeMutableRawPointer?>?
+    ) -> UnsafeMutableRawPointer?
+    private typealias GrantFn = @convention(c) (UnsafeMutablePointer<CChar>, Bool, UnsafePointer<CChar>?, Bool) -> Int64
+
     private static var roots: [String: URL] = [:]
     private static var handles: [String: Int64] = [:]
 
-    private static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
-        dlsym(UnsafeMutableRawPointer(bitPattern: -2), name)
-    }
-
-    private static func path(for bundle: String) -> String? {
-        guard let raw = symbol("MCMActivateContainerPath") else { return nil }
-        typealias F = @convention(c) (
-            Int32, UnsafePointer<CChar>, Bool,
-            UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-        ) -> UnsafeMutablePointer<CChar>?
-        var err: UnsafeMutablePointer<CChar>?
-        guard let r = unsafeBitCast(raw, to: F.self)(2, bundle, false, &err) else { return nil }
-        return String(cString: r)
-    }
-
-    private static func grant(_ path: String) -> Int64 {
-        guard let raw = symbol("bad_query") else { return -1 }
-        typealias F = @convention(c) (UnsafeMutablePointer<CChar>, Bool, UnsafePointer<CChar>?, Bool) -> Int64
-        return unsafeBitCast(raw, to: F.self)(strdup(path)!, true, nil, false)
-    }
-
     static func resolve(_ bundle: String) throws -> URL {
         if let cached = roots[bundle] { return cached }
-        guard let p = path(for: bundle) else {
+
+        guard let sym = VXSym.find("MCMActivateContainerPath") else {
+            log("vx: sin símbolo MCMActivateContainerPath")
             throw PatchPackageError.targetAppUnavailable(bundle)
         }
-        let h = grant(p)
-        guard h >= 0 else {
+        let f = unsafeBitCast(sym, to: PathFn.self)
+        let ns = bundle as NSString
+        var err: UnsafeMutableRawPointer?
+        guard let raw = f(2, Unmanaged.passUnretained(ns).toOpaque(), false, &err) else {
+            log("vx: MCM no devolvió ruta para \(bundle)")
             throw PatchPackageError.targetAppUnavailable(bundle)
         }
-        let url = PatchPathValidator.canonicalFileURL(URL(fileURLWithPath: p, isDirectory: true))
-        handles[bundle] = h
+        let path = Unmanaged<NSString>.fromOpaque(raw).takeUnretainedValue() as String
+
+        if let gs = VXSym.find("bad_query") {
+            let grant = unsafeBitCast(gs, to: GrantFn.self)
+            let h = grant(strdup(path)!, true, nil, false)
+            handles[bundle] = h
+            log("vx: grant \(bundle) = \(h)")
+        }
+
+        let url = PatchPathValidator.canonicalFileURL(URL(fileURLWithPath: path, isDirectory: true))
         roots[bundle] = url
-        log("vx: contenedor \(bundle) → \(p) (handle \(h))")
+        log("vx: contenedor \(bundle) → \(path)")
         return url
     }
 }
