@@ -24,17 +24,16 @@ jobs:
       - name: Contexto
         run: |
           {
-            echo "### registro"
-            llvm-objdump --macho -d --start-address=0x100032000 --stop-address=0x100032c40 bin \
-              | grep -E "x3|x7|x22|0xc8|0xf0|0x1cc|bl " | head -60
+            echo "### rppairing"
+            otool -tvV -p _tunnel_create_rppairing_multihost bin > t1.txt 2>&1
+            sed -n '1,110p' t1.txt
             echo
-            echo "### prologo"
-            A=$(llvm-nm --defined-only --extern-only bin | grep " _tunnel_create_rppairing_multihost" | awk '{print $1}')
-            echo "addr: $A"
-            llvm-objdump --macho -d --start-address=0x$A --stop-address=0x$(printf '%x' $((0x$A + 0x50))) bin | head -30
+            echo "### usb"
+            otool -tvV -p _tunnel_create_usb bin > t2.txt 2>&1
+            sed -n '1,70p' t2.txt
             echo
-            echo "### simbolos"
-            llvm-nm --defined-only --extern-only bin | grep -iE "provider|shared|session|pairing|tunnel|rsd" | head -40
+            echo "### simbolos C"
+            llvm-nm -gU bin | grep -E " T _[a-z]" | grep -iE "tunnel|rsd|provider|pair|afc|file_service|house" | sed -n '1,60p'
           } > abi2.txt 2>&1
           cat abi2.txt >> $GITHUB_STEP_SUMMARY
           wc -l abi2.txt
