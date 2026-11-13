@@ -40,6 +40,17 @@ jobs:
           rm -rf "$APP/veex/patches" "$APP/veex/voices"
           echo "APP=$APP" >> $GITHUB_ENV
           echo "EXE=$EXE" >> $GITHUB_ENV
+      - name: Quitar splash
+        run: |
+          python3 - "$APP/Info.plist" <<'PY'
+          import sys, plistlib
+          p = plistlib.load(open(sys.argv[1], 'rb'))
+          p.pop('UILaunchStoryboardName', None)
+          p.pop('UILaunchStoryboardFile', None)
+          p['UILaunchScreen'] = {}
+          plistlib.dump(p, open(sys.argv[1], 'wb'))
+          print("splash fuera")
+          PY
       - name: Inyectar
         run: |
           set -e
