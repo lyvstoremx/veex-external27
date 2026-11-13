@@ -153,23 +153,36 @@ enum VXEngine {
     static func tunnel() -> [String] {
         var out: [String] = []
         typealias F = @convention(c) (
-            UnsafeMutableRawPointer, Int, UnsafePointer<CChar>, UnsafeRawPointer?,
+            UnsafeMutableRawPointer, Int, UnsafePointer<CChar>, UnsafeMutableRawPointer?,
             Int, Int, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?,
             UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?
         ) -> Int32
         guard let raw = dlsym(handle, "tunnel_create_rppairing_multihost") else { return ["sin símbolo"] }
         let f = unsafeBitCast(raw, to: F.self)
         let a = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
-        let b = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
-        let c = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
-        defer { a.deallocate(); b.deallocate(); c.deallocate() }
+        let z3 = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
+        let z6 = UnsafeMutableRawPointer.allocate(byteCount: 512, alignment: 16)
+        let z7 = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
+        let st = UnsafeMutableRawPointer.allocate(byteCount: 16, alignment: 16)
+        let o1 = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
+        let o2 = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
+        defer {
+            a.deallocate(); z3.deallocate(); z6.deallocate(); z7.deallocate()
+            st.deallocate(); o1.deallocate(); o2.deallocate()
+        }
         memset(a, 0xAA, 256)
-        memset(b, 0xAA, 256)
-        memset(c, 0xAA, 256)
-        let rc = f(a, 16, "airlift-mini", nil, 0, 0, nil, nil, b, c, b)
+        memset(z3, 0, 256)
+        memset(z6, 0, 512)
+        memset(z7, 0, 256)
+        memset(st, 0, 16)
+        memset(o1, 0xAA, 256)
+        memset(o2, 0xAA, 256)
+        let rc = f(a, 16, "airlift-mini", z3, 0, 0, z6, z7, st, o1, o2)
         out.append("rc \(rc) · \(String(rc, radix: 16))")
-        out.append("a " + hex(a, 64))
-        out.append("b " + hex(b, 64))
+        out.append("st " + hex(st, 8))
+        out.append("a " + hex(a, 48))
+        out.append("o1 " + hex(o1, 32))
+        out.append("o2 " + hex(o2, 32))
         return out
     }
 }
