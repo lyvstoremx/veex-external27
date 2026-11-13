@@ -1,10 +1,12 @@
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
 extern UIViewController *VXMakePanel(void);
 
 static UIWindow *vxWin;
 static UIWindow *vxCover;
 static UIView *vxVeil;
+static void (*vxOrigMKAV)(id, SEL);
 
 static UIImage *vxLogo(void) {
     NSString *p = [NSBundle.mainBundle pathForResource:@"LaunchLogo" ofType:@"png"];
@@ -58,6 +60,15 @@ static void vx_cover(void) {
     [vxCover makeKeyAndVisible];
 }
 
+static void vxMKAV(UIWindow *self, SEL _cmd) {
+    vxOrigMKAV(self, _cmd);
+    if (self == vxWin || self == vxCover) return;
+    UIViewController *r = self.rootViewController;
+    if (!r) return;
+    UIView *v = r.view;
+    if (v) vx_veil(v);
+}
+
 static void vx_build(UIWindowScene *ws) {
     if (vxWin || !ws) return;
 
@@ -103,8 +114,14 @@ static void vx_watch(int n) {
 
 __attribute__((constructor))
 static void vx_init(void) {
-    vx_cover();
+    Method m = class_getInstanceMethod([UIWindow class], @selector(makeKeyAndVisible));
+    if (m) {
+        vxOrigMKAV = (void (*)(id, SEL))method_getImplementation(m);
+        method_setImplementation(m, (IMP)vxMKAV);
+    }
+
     dispatch_async(dispatch_get_main_queue(), ^{
+        vx_cover();
         vx_watch(0);
         [[NSNotificationCenter defaultCenter]
             addObserverForName:UISceneWillConnectNotification
