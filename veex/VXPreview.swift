@@ -14,12 +14,13 @@ struct VXPreview: View {
         let ly: CGFloat
         let px: CGFloat
         let py: CGFloat
+        let note: String?
     }
 
     private let marks: [Mark] = [
-        .init(label: "DRAG", lx: 0.11, ly: 0.16, px: 0.465, py: 0.205),
-        .init(label: "PECHO", lx: 0.11, ly: 0.39, px: 0.462, py: 0.345),
-        .init(label: "BALAS MÁGICAS", lx: 0.19, ly: 0.80, px: 0.30, py: 0.62)
+        .init(label: "DRAG", lx: 0.11, ly: 0.16, px: 0.465, py: 0.205, note: nil),
+        .init(label: "PECHO", lx: 0.11, ly: 0.39, px: 0.462, py: 0.345, note: nil),
+        .init(label: "BALAS MÁGICAS", lx: 0.19, ly: 0.79, px: 0.30, py: 0.62, note: "bajo tu propio riesgo")
     ]
 
     var body: some View {
@@ -129,15 +130,23 @@ struct VXPreview: View {
             }
 
             ForEach(marks.indices, id: \.self) { i in
-                Text(marks[i].label)
-                    .font(.system(size: 9, weight: .black))
-                    .tracking(1.6)
-                    .foregroundStyle(VX.ink)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(VX.paper)
-                    .overlay(Rectangle().stroke(VX.red, lineWidth: 1.2))
-                    .position(x: w * marks[i].lx, y: h * marks[i].ly)
+                VStack(spacing: 2) {
+                    Text(marks[i].label)
+                        .font(.system(size: 9, weight: .black))
+                        .tracking(1.6)
+                        .foregroundStyle(VX.ink)
+                    if let n = marks[i].note {
+                        Text(n)
+                            .font(.system(size: 7, weight: .heavy))
+                            .tracking(0.5)
+                            .foregroundStyle(VX.red)
+                    }
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(VX.paper)
+                .overlay(Rectangle().stroke(VX.red, lineWidth: 1.2))
+                .position(x: w * marks[i].lx, y: h * marks[i].ly)
             }
         }
         .opacity(vis)
