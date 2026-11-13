@@ -51,8 +51,8 @@ struct VXPreview: View {
                 let w = g.size.width
                 let h = g.size.height
                 ZStack {
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(.black)
+                    Rectangle()
+                        .fill(Color(white: 0.11))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
 
@@ -61,7 +61,7 @@ struct VXPreview: View {
 
                     Text("arrastra para girar")
                         .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.65))
+                        .foregroundStyle(Color(white: 0.45))
                         .position(x: w * 0.5, y: h * 0.965)
                 }
                 .contentShape(Rectangle())
@@ -100,7 +100,7 @@ struct VXPreview: View {
             } else {
                 Text("faltan las imágenes")
                     .font(.system(size: 11))
-                    .foregroundStyle(Color(white: 0.5))
+                    .foregroundStyle(Color(white: 0.45))
             }
         }
         .frame(height: h * 0.9)
@@ -134,7 +134,7 @@ struct VXPreview: View {
                     Text(marks[i].label)
                         .font(.system(size: 9, weight: .black))
                         .tracking(1.6)
-                        .foregroundStyle(VX.ink)
+                        .foregroundStyle(VX.paper)
                     if let n = marks[i].note {
                         Text(n)
                             .font(.system(size: 7, weight: .heavy))
@@ -144,7 +144,7 @@ struct VXPreview: View {
                 }
                 .padding(.horizontal, 7)
                 .padding(.vertical, 4)
-                .background(VX.paper)
+                .background(Color(white: 0.13))
                 .overlay(Rectangle().stroke(VX.red, lineWidth: 1.2))
                 .position(x: w * marks[i].lx, y: h * marks[i].ly)
             }
