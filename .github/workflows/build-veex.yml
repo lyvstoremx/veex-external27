@@ -52,45 +52,33 @@ jobs:
             sips -z "$1" "$1" "$SRC" --out "$APP/AppIcon$2.png" >/dev/null
           done
 
-          CAT="$RUNNER_TEMP/cat.xcassets"
-          mkdir -p "$CAT/LaunchLogo.imageset" "$CAT/LaunchBg.colorset"
-          sips -Z 640 "$SRC" --out "$CAT/LaunchLogo.imageset/logo.png" >/dev/null
-          cat > "$CAT/LaunchLogo.imageset/Contents.json" <<'JSON'
-          {"images":[{"filename":"logo.png","idiom":"universal","scale":"1x"}],"info":{"author":"xcode","version":1}}
-          JSON
-          cat > "$CAT/LaunchBg.colorset/Contents.json" <<'JSON'
-          {"colors":[{"color":{"color-space":"srgb","components":{"alpha":"1.000","blue":"0.000","green":"0.000","red":"0.000"}},"idiom":"universal"}],"info":{"author":"xcode","version":1}}
-          JSON
-
-          OUT="$RUNNER_TEMP/out" && mkdir -p "$OUT"
-          set +e
-          xcrun actool --compile "$OUT" --platform iphoneos --minimum-deployment-target 16.0 \
-            --output-partial-info-plist "$RUNNER_TEMP/partial.plist" "$CAT" > "$RUNNER_TEMP/actool.log" 2>&1
-          RC=$?
-          set -e
-          cat "$RUNNER_TEMP/actool.log"
-          if [ $RC -ne 0 ] || [ ! -f "$OUT/Assets.car" ]; then
-            echo "actool fallo, sigo con splash por PNG suelto"
-            sips -Z 640 "$SRC" --out "$APP/LaunchLogo.png" >/dev/null
-            LAUNCH="PNG"
-          else
-            cp "$OUT/Assets.car" "$APP/Assets.car"
-            LAUNCH="CAR"
-          fi
-          echo "LAUNCH=$LAUNCH" >> $GITHUB_ENV
+          python3 -m venv "$RUNNER_TEMP/venv"
+          source "$RUNNER_TEMP/venv/bin/activate"
+          pip install --quiet pillow
+          python3 - "$SRC" "$APP/LaunchLogo.png" <<'PY'
+          import sys
+          from PIL import Image
+          W, H = 1170, 2532
+          bg = Image.new("RGB", (W, H), (0, 0, 0))
+          logo = Image.open(sys.argv[1]).convert("RGB")
+          tw = int(W * 0.72)
+          th = int(logo.height * tw / logo.width)
+          logo = logo.resize((tw, th), Image.LANCZOS)
+          bg.paste(logo, ((W - tw) // 2, (H - th) // 2))
+          bg.save(sys.argv[2], "PNG")
+          print("splash", bg.size)
+          PY
 
           rm -rf "$APP"/*.storyboardc "$APP"/*.nib "$APP"/Base.lproj
-          python3 - "$APP/Info.plist" "$LAUNCH" <<'PY'
+          python3 - "$APP/Info.plist" <<'PY'
           import sys, plistlib
           p = plistlib.load(open(sys.argv[1], 'rb'))
           for k in ('UILaunchStoryboardName', 'UILaunchStoryboardFile',
                     'UILaunchStoryboardName~ipad', 'CFBundleIconName',
                     'CFBundleIcons', 'CFBundleIcons~ipad'):
               p.pop(k, None)
-          if sys.argv[2] == 'CAR':
-              p['UILaunchScreen'] = {'UIImageName': 'LaunchLogo', 'UIColorName': 'LaunchBg'}
-          else:
-              p['UILaunchScreen'] = {'UIImageName': 'LaunchLogo'}
+          p['UILaunchScreen'] = {'UIImageName': 'LaunchLogo',
+                                 'UIImageRespectsSafeAreaInsets': False}
           p['UIUserInterfaceStyle'] = 'Dark'
           p['CFBundleDisplayName'] = 'VEEX'
           p['CFBundleName'] = 'VEEX'
@@ -105,16 +93,15 @@ jobs:
           except Exception:
               p['CFBundleVersion'] = '2'
           plistlib.dump(p, open(sys.argv[1], 'wb'))
-          print("version", p['CFBundleVersion'], "splash", sys.argv[2])
+          print("version", p['CFBundleVersion'])
           PY
           for d in "$APP"/*.lproj; do
             [ -d "$d" ] && printf '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n' > "$d/InfoPlist.strings"
           done
-          ls -la "$APP" | grep -E "AppIcon|Launch"
+          sips -g pixelWidth -g pixelHeight "$APP/LaunchLogo.png"
       - name: Inyectar
         run: |
           set -e
-          python3 -m venv "$RUNNER_TEMP/venv"
           source "$RUNNER_TEMP/venv/bin/activate"
           pip install --quiet lief
           mkdir -p "$APP/Frameworks"
