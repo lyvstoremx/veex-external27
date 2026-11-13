@@ -33,7 +33,9 @@ jobs:
           cp -R "$RUNNER_TEMP/src/patches/." "$APP/veex/"
           cp -R "$RUNNER_TEMP/src/voices/." "$APP/veex/"
           cp "$GITHUB_WORKSPACE/IMG_5360.png" "$APP/veex/vx_front.png"
+          cp "$GITHUB_WORKSPACE/IMG_5365.png" "$APP/veex/vx_right.png"
           cp "$GITHUB_WORKSPACE/IMG_5361.png" "$APP/veex/vx_back.png"
+          cp "$GITHUB_WORKSPACE/IMG_5364.png" "$APP/veex/vx_left.png"
           rm -rf "$APP/veex/patches" "$APP/veex/voices"
           echo "APP=$APP" >> $GITHUB_ENV
           echo "EXE=$EXE" >> $GITHUB_ENV
