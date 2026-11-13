@@ -29,7 +29,7 @@ jobs:
           python3 -m venv $RUNNER_TEMP/venv
           source $RUNNER_TEMP/venv/bin/activate
           pip install --upgrade pip
-          pip install lief
+          pip install lief pillow
           echo "$RUNNER_TEMP/venv/bin" >> $GITHUB_PATH
 
       - name: Recursos del repo viejo
@@ -129,17 +129,31 @@ jobs:
           /usr/libexec/PlistBuddy -c "Delete :UILaunchScreen" "$PL" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :UILaunchScreen dict" "$PL"
           /usr/libexec/PlistBuddy -c "Add :UILaunchScreen:UIImageName string LaunchLogo" "$PL"
+          /usr/libexec/PlistBuddy -c "Add :UILaunchScreen:UIImageRespectsSafeAreaInsets bool false" "$PL" 2>/dev/null || true
           for d in "$APP"/*.lproj; do
             [ -d "$d" ] || continue
             printf '"CFBundleDisplayName" = "%s";\n"CFBundleName" = "%s";\n' "$APP_NAME" "$APP_NAME" > "$d/InfoPlist.strings"
           done
-          for s in LaunchLogo.png LaunchLogo@2x.png LaunchLogo@3x.png; do
-            [ -f "$s" ] && cp "$s" "$APP/$s"
+          SRC=""
+          for c in IMG_5384.png IMG_5380.png; do
+            if [ -f "$c" ]; then SRC="$c"; break; fi
           done
-          if [ ! -f "$APP/LaunchLogo.png" ] && [ -f IMG_5384.png ]; then
-            sips -z 1024 1024 IMG_5384.png --out "$APP/LaunchLogo.png" >/dev/null 2>&1
+          if [ -n "$SRC" ]; then
+            python3 - "$SRC" "$APP/LaunchLogo.png" <<'PY'
+          from PIL import Image
+          import sys
+          src = Image.open(sys.argv[1]).convert("RGBA")
+          W, H = 1290, 2796
+          bg = Image.new("RGB", (W, H), (0, 0, 0))
+          w = int(W * 0.55)
+          lh = int(src.height * w / src.width)
+          logo = src.resize((w, lh), Image.LANCZOS)
+          bg.paste(logo, ((W - w) // 2, (H - lh) // 2), logo)
+          bg.save(sys.argv[2])
+          print("splash", bg.size)
+          PY
           fi
-          echo "plist listo"
+          echo "plist y splash listos"
 
       - name: Icono
         run: |
@@ -151,48 +165,60 @@ jobs:
           done
           APP=$(ls -d work/Payload/*.app | head -1)
           if [ -z "$SRC" ]; then echo "sin logo, se deja el icono original"; exit 0; fi
+          python3 - "$SRC" master.png <<'PY'
+          from PIL import Image
+          import sys
+          src = Image.open(sys.argv[1]).convert("RGBA")
+          W = 1024
+          bg = Image.new("RGB", (W, W), (0, 0, 0))
+          w = int(W * 0.86)
+          lh = int(src.height * w / src.width)
+          logo = src.resize((w, lh), Image.LANCZOS)
+          bg.paste(logo, ((W - w) // 2, (W - lh) // 2), logo)
+          bg.save(sys.argv[2])
+          print("master", bg.size)
+          PY
           XC=$RUNNER_TEMP/Assets.xcassets/AppIcon.appiconset
           rm -rf $RUNNER_TEMP/Assets.xcassets
-          mkdir -p "$XC"
+          mkdir -p "$XC" $RUNNER_TEMP/xcout
           for s in 20 29 40 58 60 76 80 87 120 152 167 180 1024; do
-            sips -z $s $s "$SRC" --out "$XC/i$s.png" >/dev/null 2>&1 || true
+            sips -z $s $s master.png --out "$XC/i$s.png" >/dev/null 2>&1 || true
           done
-          cat > "$XC/Contents.json" <<'JSON'
-          {
-            "images": [
-              {"size":"20x20","idiom":"iphone","filename":"i40.png","scale":"2x"},
-              {"size":"20x20","idiom":"iphone","filename":"i60.png","scale":"3x"},
-              {"size":"29x29","idiom":"iphone","filename":"i29.png","scale":"1x"},
-              {"size":"29x29","idiom":"iphone","filename":"i58.png","scale":"2x"},
-              {"size":"29x29","idiom":"iphone","filename":"i87.png","scale":"3x"},
-              {"size":"40x40","idiom":"iphone","filename":"i40.png","scale":"1x"},
-              {"size":"40x40","idiom":"iphone","filename":"i80.png","scale":"2x"},
-              {"size":"40x40","idiom":"iphone","filename":"i120.png","scale":"3x"},
-              {"size":"60x60","idiom":"iphone","filename":"i120.png","scale":"2x"},
-              {"size":"60x60","idiom":"iphone","filename":"i180.png","scale":"3x"},
-              {"size":"76x76","idiom":"ipad","filename":"i76.png","scale":"1x"},
-              {"size":"76x76","idiom":"ipad","filename":"i152.png","scale":"2x"},
-              {"size":"83.5x83.5","idiom":"ipad","filename":"i167.png","scale":"2x"},
-              {"size":"1024x1024","idiom":"ios-marketing","filename":"i1024.png","scale":"1x"}
-            ],
-            "info": {"version":1,"author":"xcode"}
-          }
-          JSON
+          python3 - "$XC/Contents.json" <<'PY'
+          import json, sys
+          imgs = [
+            ("20x20","iphone","i40.png","2x"),("20x20","iphone","i60.png","3x"),
+            ("29x29","iphone","i29.png","1x"),("29x29","iphone","i58.png","2x"),
+            ("29x29","iphone","i87.png","3x"),("40x40","iphone","i40.png","1x"),
+            ("40x40","iphone","i80.png","2x"),("40x40","iphone","i120.png","3x"),
+            ("60x60","iphone","i120.png","2x"),("60x60","iphone","i180.png","3x"),
+            ("76x76","ipad","i76.png","1x"),("76x76","ipad","i152.png","2x"),
+            ("83.5x83.5","ipad","i167.png","2x"),("1024x1024","ios-marketing","i1024.png","1x"),
+          ]
+          data = {"images":[{"size":a,"idiom":b,"filename":c,"scale":d} for a,b,c,d in imgs],
+                  "info":{"version":1,"author":"xcode"}}
+          json.dump(data, open(sys.argv[1],"w"), indent=2)
+          print("contents ok")
+          PY
           set +e
           xcrun actool $RUNNER_TEMP/Assets.xcassets \
             --compile $RUNNER_TEMP/xcout \
             --platform iphoneos --minimum-deployment-target 16.0 \
+            --target-device iphone --target-device ipad \
             --app-icon AppIcon \
             --output-partial-info-plist $RUNNER_TEMP/partial.plist \
             > $RUNNER_TEMP/actool.log 2>&1
           RC=$?
           set -e
+          cat $RUNNER_TEMP/actool.log || true
           if [ $RC -eq 0 ] && [ -f $RUNNER_TEMP/xcout/Assets.car ]; then
             cp $RUNNER_TEMP/xcout/Assets.car "$APP/Assets.car"
             echo "Assets.car reemplazado"
           else
-            echo "actool fallo, respaldo por PNG suelto"
-            cat $RUNNER_TEMP/actool.log || true
+            echo "actool fallo, se dejan iconos sueltos"
+            cp "$XC/i120.png" "$APP/AppIcon60x60@2x.png" 2>/dev/null || true
+            cp "$XC/i180.png" "$APP/AppIcon60x60@3x.png" 2>/dev/null || true
+            cp "$XC/i1024.png" "$APP/iTunesArtwork@2x" 2>/dev/null || true
           fi
 
       - name: Firmar
@@ -208,27 +234,6 @@ jobs:
         run: |
           APP=$(ls -d work/Payload/*.app | head -1)
           /usr/libexec/PlistBuddy -c "Print" "$APP/Info.plist" | head -40
-
-      - name: Cuadros
-        run: |
-          set -e
-          cd "$GITHUB_WORKSPACE"
-          VID=$(ls ScreenRecording*.mp4 2>/dev/null | head -1 || true)
-          if [ -z "$VID" ]; then echo "no hay video"; exit 0; fi
-          echo "video: $VID"
-          rm -rf frames && mkdir -p frames
-          ffmpeg -y -i "$VID" -vf "fps=4,scale=360:-1" frames/f_%03d.png
-          ls frames | wc -l
-
-      - name: Publicar cuadros
-        run: |
-          set -e
-          cd "$GITHUB_WORKSPACE"
-          git config user.name "veex-bot"
-          git config user.email "bot@veex.local"
-          git add -f frames
-          git commit -m "cuadros del arranque" || echo "sin cambios"
-          git push || true
 
       - name: Empaquetar
         run: |
