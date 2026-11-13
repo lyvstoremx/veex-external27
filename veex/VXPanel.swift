@@ -84,25 +84,24 @@ struct VXDoor: View {
     var body: some View {
         GeometryReader { g in
             ZStack {
-                VX.ink.ignoresSafeArea()
+                VX.paper.ignoresSafeArea()
                 VXSmoke().ignoresSafeArea()
                 VXNoise().ignoresSafeArea()
-                VXVignette().ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    VXMark(size: 44)
-                        .padding(.top, 24)
+                    VXMark(size: 42)
+                        .padding(.top, 22)
                     Text("PRUEBA VISUAL")
                         .font(.system(size: 8, weight: .black))
                         .tracking(6)
                         .foregroundStyle(VX.red)
-                        .padding(.top, 10)
+                        .padding(.top, 9)
 
                     VXPreview(s: s, header: false)
-                        .frame(height: g.size.height * 0.44)
+                        .frame(height: g.size.height * 0.45)
 
                     plate
-                    Spacer(minLength: 10)
+                    Spacer(minLength: 8)
                 }
             }
         }
@@ -110,7 +109,7 @@ struct VXDoor: View {
     }
 
     private var plate: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 11) {
             Text("CLAVE")
                 .font(.system(size: 9, weight: .black))
                 .tracking(5)
@@ -122,10 +121,10 @@ struct VXDoor: View {
                 .autocorrectionDisabled()
                 .multilineTextAlignment(.center)
                 .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                .foregroundStyle(VX.paper)
+                .foregroundStyle(VX.ink)
                 .padding(.vertical, 12)
-                .background(Color.black.opacity(0.75))
-                .overlay(Rectangle().stroke(bad ? VX.red : Color(white: 0.26), lineWidth: 1))
+                .background(VX.paper)
+                .overlay(Rectangle().stroke(bad ? VX.red : VX.ink.opacity(0.35), lineWidth: 1.2))
 
             Button {
                 if !s.validate(key) {
@@ -141,16 +140,16 @@ struct VXDoor: View {
                 Text("ENTRAR")
                     .font(.system(size: 12, weight: .black))
                     .tracking(5)
-                    .foregroundStyle(VX.paper)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(VX.red)
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 20)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 18)
         .vxSlab()
-        .padding(.horizontal, 26)
+        .padding(.horizontal, 24)
     }
 }
 
@@ -160,9 +159,8 @@ struct VXPanel: View {
 
     var body: some View {
         ZStack {
-            VX.ink.ignoresSafeArea()
+            VX.paper.ignoresSafeArea()
             VXNoise().ignoresSafeArea()
-            VXVignette().ignoresSafeArea()
 
             VStack(spacing: 0) {
                 header
@@ -186,8 +184,8 @@ struct VXPanel: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center) {
-            VXMark(size: 18)
+        HStack(spacing: 8) {
+            VXMark(size: 17)
             Text("EXTERNAL")
                 .font(.system(size: 9, weight: .black))
                 .tracking(4)
@@ -201,7 +199,7 @@ struct VXPanel: View {
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(VX.paper)
+                    .foregroundStyle(VX.ink)
             }
         }
         .padding(.horizontal, 18)
@@ -219,10 +217,11 @@ struct VXPanel: View {
                         Text(c.rawValue)
                             .font(.system(size: 8, weight: .black))
                             .tracking(2)
-                            .foregroundStyle(s.cat == c ? VX.paper : VX.dim)
+                            .foregroundStyle(s.cat == c ? .white : VX.ink.opacity(0.55))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 7)
-                            .background(s.cat == c ? VX.red : Color(white: 0.11))
+                            .background(s.cat == c ? VX.red : VX.paper)
+                            .overlay(Rectangle().stroke(VX.ink.opacity(0.18), lineWidth: 0.8))
                     }
                 }
             }
@@ -234,12 +233,12 @@ struct VXPanel: View {
     private func row(_ p: VXPatch) -> some View {
         HStack(spacing: 11) {
             Rectangle()
-                .fill(s.on.contains(p.id) ? VX.red : Color(white: 0.2))
-                .frame(width: 2, height: 20)
+                .fill(s.on.contains(p.id) ? VX.red : VX.ink.opacity(0.15))
+                .frame(width: 2.5, height: 20)
             Text(p.name)
                 .font(.system(size: 11, weight: .black))
                 .tracking(1.4)
-                .foregroundStyle(s.on.contains(p.id) ? VX.paper : Color(white: 0.55))
+                .foregroundStyle(s.on.contains(p.id) ? VX.ink : VX.ink.opacity(0.55))
             Spacer()
             Toggle("", isOn: Binding(get: { s.on.contains(p.id) }, set: { _ in s.toggle(p) }))
                 .labelsHidden()
@@ -270,10 +269,10 @@ struct VXRoot: View {
     @StateObject private var s = VXStore()
     var body: some View {
         ZStack {
-            VX.ink.ignoresSafeArea()
+            VX.paper.ignoresSafeArea()
             if s.unlocked { VXPanel(s: s) } else { VXDoor(s: s) }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
 }
 
@@ -285,6 +284,6 @@ final class VXHost: UIHostingController<VXRoot> {
 @_cdecl("VXMakePanel")
 public func VXMakePanel() -> UIViewController {
     let h = VXHost()
-    h.view.backgroundColor = .black
+    h.view.backgroundColor = .white
     return h
 }
