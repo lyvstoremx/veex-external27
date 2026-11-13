@@ -53,6 +53,19 @@ enum VXEngine {
         }
         return seen
     }
+
+    static func files() -> [String] {
+        var out: [String] = []
+        let home = NSHomeDirectory()
+        for sub in ["", "/Documents", "/Library", "/Library/Application Support", "/Library/Preferences"] {
+            let base = home + sub
+            guard let e = try? FileManager.default.contentsOfDirectory(atPath: base) else { continue }
+            for f in e.prefix(25) {
+                out.append((sub.isEmpty ? "~" : "~" + sub) + "/" + f)
+            }
+        }
+        return out
+    }
 }
 
 struct VXEngineCard: View {
@@ -98,6 +111,19 @@ struct VXEngineCard: View {
                         .background(VX.slab)
                         .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
                 }
+                Button {
+                    items = VXEngine.files()
+                    listed = true
+                } label: {
+                    Text("ARCHIVOS")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1.6)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(VX.slab)
+                        .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
+                }
             }
 
             if ran {
@@ -123,7 +149,7 @@ struct VXEngineCard: View {
 
             if listed {
                 Rectangle().fill(VX.line).frame(height: 1).padding(.vertical, 2)
-                Text("KEYCHAIN · \(items.count)")
+                Text("LISTADO · \(items.count)")
                     .font(.system(size: 8, weight: .black))
                     .tracking(2)
                     .foregroundStyle(VX.dim)
