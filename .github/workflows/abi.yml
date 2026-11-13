@@ -23,14 +23,16 @@ jobs:
           cp "$BIN" ../bin
       - name: Contexto
         run: |
+          llvm-objdump --macho -d bin > dis.txt 2>&1
+          wc -l dis.txt
+          L=$(grep -n "bl .*_tunnel_create_rppairing_multihost" dis.txt | head -1 | cut -d: -f1)
+          C=$(grep -n "^10056ab58:" dis.txt | head -1 | cut -d: -f1)
           {
-            echo "### rppairing"
-            otool -tvV -p _tunnel_create_rppairing_multihost bin > t1.txt 2>&1
-            sed -n '1,110p' t1.txt
+            echo "### antes de la llamada (linea $L)"
+            sed -n "$((L-170)),$((L+4))p" dis.txt
             echo
-            echo "### usb"
-            otool -tvV -p _tunnel_create_usb bin > t2.txt 2>&1
-            sed -n '1,70p' t2.txt
+            echo "### callee (linea $C)"
+            sed -n "${C},$((C+90))p" dis.txt
             echo
             echo "### simbolos C"
             llvm-nm -gU bin | grep -E " T _[a-z]" | grep -iE "tunnel|rsd|provider|pair|afc|file_service|house" | sed -n '1,60p'
