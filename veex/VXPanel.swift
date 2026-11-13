@@ -364,6 +364,7 @@ struct VXPanel: View {
                     VXPreview(s: s)
                 } else {
                     ScrollView {
+                        if s.cat == .extra { VXEngineCard().padding(.horizontal, 14) }
                         LazyVStack(spacing: 5) {
                             ForEach(s.patches.filter { $0.cat == s.cat }) { p in
                                 row(p)
