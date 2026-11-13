@@ -1,10 +1,9 @@
 import SwiftUI
 import Darwin
+import MachO
 import Security
 
 enum VXEngine {
-    static let handle = UnsafeMutableRawPointer(bitPattern: -2)
-
     static let symbols = [
         "afc_client_connect_rsd",
         "afc_client_new_with_rsd",
@@ -28,7 +27,9 @@ enum VXEngine {
     ]
 
     static func resolve() -> [(String, Bool)] {
-        symbols.map { ($0, dlsym(handle, $0) != nil) }
+        var out: [(String, Bool)] = [("symtab", VXSym.count() > 0)]
+        out.append(contentsOf: symbols.map { ($0, VXSym.find($0) != nil) })
+        return out
     }
 
     private static func keychain(_ service: String) -> String? {
@@ -96,32 +97,32 @@ enum VXEngine {
     }
 
     static func path(for bundle: String) -> String? {
-        guard let raw = dlsym(handle, "MCMActivateContainerPath") else { return nil }
         typealias F = @convention(c) (
-            Int32, UnsafePointer<CChar>, Bool,
-            UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-        ) -> UnsafeMutablePointer<CChar>?
+            UInt64, UnsafeMutableRawPointer, Bool, UnsafeMutablePointer<UnsafeMutableRawPointer?>?
+        ) -> UnsafeMutableRawPointer?
+        guard let raw = VXSym.find("MCMActivateContainerPath") else { return nil }
         let f = unsafeBitCast(raw, to: F.self)
-        var err: UnsafeMutablePointer<CChar>?
-        guard let r = f(2, bundle, false, &err) else { return nil }
-        return String(cString: r)
+        let ns = bundle as NSString
+        var err: UnsafeMutableRawPointer?
+        guard let r = f(2, Unmanaged.passUnretained(ns).toOpaque(), false, &err) else { return nil }
+        return Unmanaged<NSString>.fromOpaque(r).takeUnretainedValue() as String
     }
 
     static func grant(_ path: String) -> Int64 {
-        guard let raw = dlsym(handle, "bad_query") else { return -1 }
         typealias F = @convention(c) (UnsafeMutablePointer<CChar>, Bool, UnsafePointer<CChar>?, Bool) -> Int64
+        guard let raw = VXSym.find("bad_query") else { return -1 }
         return unsafeBitCast(raw, to: F.self)(strdup(path)!, true, nil, false)
     }
 
     static func release(_ h: Int64) {
-        guard let raw = dlsym(handle, "bad_query_release") else { return }
         typealias F = @convention(c) (Int64) -> Void
+        guard let raw = VXSym.find("bad_query_release") else { return }
         unsafeBitCast(raw, to: F.self)(h)
     }
 
     static func list(_ path: String) -> [String] {
-        guard let raw = dlsym(handle, "bad_query_list") else { return [] }
         typealias F = @convention(c) (UnsafeMutablePointer<CChar>, Int64) -> UnsafeMutablePointer<CChar>?
+        guard let raw = VXSym.find("bad_query_list") else { return [] }
         guard let r = unsafeBitCast(raw, to: F.self)(strdup(path)!, 2_000_000) else { return [] }
         defer { free(r) }
         return String(cString: r).split(separator: "\n").map(String.init)
@@ -157,7 +158,7 @@ enum VXEngine {
             Int, Int, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?,
             UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?
         ) -> Int32
-        guard let raw = dlsym(handle, "tunnel_create_rppairing_multihost") else { return ["sin símbolo"] }
+        guard let raw = VXSym.find("tunnel_create_rppairing_multihost") else { return ["sin símbolo"] }
         let f = unsafeBitCast(raw, to: F.self)
         let a = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
         let z3 = UnsafeMutableRawPointer.allocate(byteCount: 256, alignment: 16)
@@ -194,7 +195,7 @@ struct VXEngineCard: View {
     @State private var ran = false
     @State private var items: [String] = []
     @State private var listed = false
-    @State private var bundle = ""
+    @State private var bundle = "com.dts.freefireth"
     @State private var out: [String] = []
     @State private var tun: [String] = []
 
