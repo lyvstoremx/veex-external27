@@ -1,9 +1,16 @@
 #import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
 
 extern UIViewController *VXMakePanel(void);
 
 static UIWindow *vxWin;
 static UIView *vxVeil;
+
+static void vx_log(NSString *s) {
+    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    FILE *f = fopen([[dir stringByAppendingPathComponent:@"veex.log"] fileSystemRepresentation], "a");
+    if (f) { fprintf(f, "%s\n", s.UTF8String); fclose(f); }
+}
 
 static UIImage *vxLogo(void) {
     NSString *p = [NSBundle.mainBundle pathForResource:@"LaunchLogo" ofType:@"png"];
@@ -12,6 +19,7 @@ static UIImage *vxLogo(void) {
 
 static void vx_veilOn(UIWindow *w) {
     if (!w) return;
+    vx_log([NSString stringWithFormat:@"velo %.3f", CACurrentMediaTime()]);
     if (!vxVeil) {
         vxVeil = [[UIView alloc] initWithFrame:w.bounds];
         vxVeil.backgroundColor = UIColor.blackColor;
@@ -33,6 +41,7 @@ static void vx_veilOn(UIWindow *w) {
 
 static void vx_build(UIWindowScene *ws) {
     if (vxWin || !ws) return;
+    vx_log([NSString stringWithFormat:@"mi ventana %.3f", CACurrentMediaTime()]);
     vxWin = [[UIWindow alloc] initWithWindowScene:ws];
     vxWin.windowLevel = UIWindowLevelAlert + 1;
     vxWin.backgroundColor = UIColor.blackColor;
@@ -51,6 +60,7 @@ static void vx_watch(int n) {
         if (!vxWin) vx_build(ws);
         for (UIWindow *w in ws.windows) {
             if (w == vxWin) continue;
+            vx_log([NSString stringWithFormat:@"ventana ajena %.3f", CACurrentMediaTime()]);
             w.hidden = NO;
             w.alpha = 1;
             vx_veilOn(w);
@@ -63,6 +73,7 @@ static void vx_watch(int n) {
 
 __attribute__((constructor))
 static void vx_init(void) {
+    vx_log([NSString stringWithFormat:@"arranque %.3f", CACurrentMediaTime()]);
     dispatch_async(dispatch_get_main_queue(), ^{
         vx_watch(0);
         [[NSNotificationCenter defaultCenter]
