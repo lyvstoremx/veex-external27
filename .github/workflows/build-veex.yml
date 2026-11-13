@@ -40,55 +40,38 @@ jobs:
           rm -rf "$APP/veex/patches" "$APP/veex/voices"
           echo "APP=$APP" >> $GITHUB_ENV
           echo "EXE=$EXE" >> $GITHUB_ENV
-      - name: Nombre
+      - name: Nombre e icono
         run: |
           set -e
-          python3 - "$APP" <<'PY'
-          import sys, os, plistlib
-          app = sys.argv[1]
-          ip = os.path.join(app, 'Info.plist')
-          p = plistlib.load(open(ip, 'rb'))
+          test -f "$GITHUB_WORKSPACE/IMG_5380.png" || { echo "falta IMG_5380.png"; exit 1; }
+          SRC="$RUNNER_TEMP/base.png"
+          sips -p 1360 1360 --padColor FFFFFF "$GITHUB_WORKSPACE/IMG_5380.png" --out "$SRC" >/dev/null
+          for pair in "1024 1024" "180 60x60@3x" "120 60x60@2x" "87 29x29@3x" "80 40x40@2x" "60 40x40@3x" "58 29x29@2x" "40 20x20@2x" "152 76x76@2x" "167 83.5x83.5@2x"; do
+            set -- $pair
+            sips -z "$1" "$1" "$SRC" --out "$APP/AppIcon$2.png" >/dev/null
+          done
+          python3 - "$APP/Info.plist" <<'PY'
+          import sys, plistlib
+          p = plistlib.load(open(sys.argv[1], 'rb'))
           p.pop('UILaunchStoryboardName', None)
           p.pop('UILaunchStoryboardFile', None)
           p['UILaunchScreen'] = {}
           p['CFBundleDisplayName'] = 'VEEX'
           p['CFBundleName'] = 'VEEX'
-          p['CFBundleIconName'] = 'AppIcon'
-          p.pop('CFBundleIcons', None)
-          p.pop('CFBundleIcons~ipad', None)
-          plistlib.dump(p, open(ip, 'wb'))
-          for d in os.listdir(app):
-              if d.endswith('.lproj'):
-                  open(os.path.join(app, d, 'InfoPlist.strings'), 'w').write(
-                      '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n')
-          print("nombre listo")
-          PY
-      - name: Icono
-        run: |
-          set -e
-          test -f "$GITHUB_WORKSPACE/IMG_5380.png" || { echo "falta IMG_5380.png"; exit 1; }
-          SRC="$RUNNER_TEMP/src.png"
-          sips -p 1360 1360 --padColor FFFFFF "$GITHUB_WORKSPACE/IMG_5380.png" --out "$SRC" >/dev/null
-          sips -z 1024 1024 "$SRC" >/dev/null
-          SET="$RUNNER_TEMP/cat.xcassets/AppIcon.appiconset"
-          mkdir -p "$SET"
-          cp "$SRC" "$SET/icon.png"
-          cat > "$SET/Contents.json" <<'JSON'
-          {
-            "images": [
-              { "filename": "icon.png", "idiom": "universal", "platform": "ios", "size": "1024x1024" }
-            ],
-            "info": { "author": "xcode", "version": 1 }
+          p.pop('CFBundleIconName', None)
+          p['CFBundleIcons'] = {
+              'CFBundlePrimaryIcon': {
+                  'CFBundleIconFiles': ['AppIcon60x60', 'AppIcon29x29', 'AppIcon40x40'],
+                  'CFBundleIconName': 'AppIcon'
+              }
           }
-          JSON
-          OUT="$RUNNER_TEMP/out" && mkdir -p "$OUT"
-          xcrun actool --compile "$OUT" \
-            --platform iphoneos --minimum-deployment-target 16.0 \
-            --app-icon AppIcon --output-partial-info-plist "$RUNNER_TEMP/partial.plist" \
-            "$RUNNER_TEMP/cat.xcassets" >/dev/null
-          cp "$OUT/Assets.car" "$APP/Assets.car"
-          rm -f "$APP"/AppIcon*.png
-          echo "icono compilado"
+          plistlib.dump(p, open(sys.argv[1], 'wb'))
+          print("plist e iconos listos")
+          PY
+          for d in "$APP"/*.lproj; do
+            [ -d "$d" ] && printf '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n' > "$d/InfoPlist.strings"
+          done
+          ls -la "$APP" | grep AppIcon
       - name: Inyectar
         run: |
           set -e
