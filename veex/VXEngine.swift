@@ -34,6 +34,18 @@ enum VXEngine {
 
     static func pairing() -> String? { keychain("3105-airlift-pairing-v1") }
     static func pin() -> String? { keychain("3105-airlift-pairing-v1-pin") }
+
+    static func dump() -> [String] {
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll
+        ]
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+              let arr = out as? [[String: Any]] else { return [] }
+        return arr.compactMap { $0[kSecAttrService as String] as? String }
+    }
 }
 
 struct VXEngineCard: View {
@@ -79,7 +91,7 @@ struct VXEngineCard: View {
                     }
                 }
                 Rectangle().fill(VX.line).frame(height: 1).padding(.vertical, 2)
-                line("PAIRING", pair)
+                line("PAIRING", pair ?? "no encontrado · \(VXEngine.dump().count) items")
                 line("PIN", pin)
                 Text("verde = símbolo disponible · rojo = falta")
                     .font(.system(size: 7, weight: .heavy))
