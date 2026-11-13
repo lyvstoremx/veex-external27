@@ -4,6 +4,17 @@ import AVFoundation
 
 let VXAdmin = "VEEX-LEVI-2004"
 
+enum VXResult {
+    case permanent
+    case timed(Date)
+    case bad
+}
+
+struct VXKeyEntry: Decodable {
+    let key: String
+    let exp: String?
+}
+
 enum VXCat: String, CaseIterable, Identifiable {
     case visual = "PRUEBA VISUAL"
     case holo = "HOLOGRAMAS"
@@ -18,21 +29,63 @@ struct VXPatch: Identifiable {
     let cat: VXCat
 }
 
+func vxIOSSupported() -> Bool {
+    let v = ProcessInfo.processInfo.operatingSystemVersion
+    let m = v.majorVersion, n = v.minorVersion, p = v.patchVersion
+    if m == 17 { return n <= 7 }
+    if m == 18 { return n < 7 || (n == 7 && p <= 10) }
+    if m == 26 { return n < 7 || (n == 7 && p <= 2) }
+    if m == 27 { return n < 2 || (n == 2 && p == 0) }
+    return false
+}
+
+func vxIOSLabel() -> String {
+    let v = ProcessInfo.processInfo.operatingSystemVersion
+    return "iOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+}
+
 final class VXStore: ObservableObject {
     @Published var unlocked: Bool
     @Published var cat: VXCat = .visual
     @Published var on: Set<String> = []
     @Published var mute: Bool
     @Published var patches: [VXPatch] = []
+    @Published var saved: String?
+    @Published var exp: Date?
+    @Published var now = Date()
 
     private var player: AVAudioPlayer?
+    private var timer: Timer?
 
     init() {
         let d = UserDefaults.standard
-        unlocked = d.bool(forKey: "vx.unlocked")
         mute = d.bool(forKey: "vx.mute")
+        saved = d.string(forKey: "vx.key")
+        unlocked = false
         load()
+
+        if let k = saved {
+            switch check(k) {
+            case .permanent:
+                unlocked = true
+            case .timed(let e):
+                exp = e
+                unlocked = e > Date()
+            case .bad:
+                saved = nil
+            }
+        }
+
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.now = Date()
+            if let e = self.exp, e <= Date(), self.unlocked {
+                self.unlocked = false
+            }
+        }
     }
+
+    deinit { timer?.invalidate() }
 
     private func load() {
         let dir = Bundle.main.bundlePath + "/veex"
@@ -62,16 +115,67 @@ final class VXStore: ObservableObject {
         return .extra
     }
 
-    func validate(_ key: String) -> Bool {
-        guard key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == VXAdmin else { return false }
-        UserDefaults.standard.set(true, forKey: "vx.unlocked")
-        unlocked = true
-        return true
+    func check(_ raw: String) -> VXResult {
+        let k = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !k.isEmpty else { return .bad }
+        if k == VXAdmin { return .permanent }
+
+        guard let p = Bundle.main.path(forResource: "keys", ofType: "json", inDirectory: "veex"),
+              let d = FileManager.default.contents(atPath: p),
+              let list = try? JSONDecoder().decode([VXKeyEntry].self, from: d),
+              let e = list.first(where: { $0.key.uppercased() == k })
+        else { return .bad }
+
+        guard let s = e.exp else { return .permanent }
+        let f = ISO8601DateFormatter()
+        guard let date = f.date(from: s) else { return .bad }
+        return date > Date() ? .timed(date) : .bad
+    }
+
+    func enter(_ raw: String) -> Bool {
+        let k = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        switch check(k) {
+        case .permanent:
+            exp = nil
+            UserDefaults.standard.set(k, forKey: "vx.key")
+            saved = k
+            unlocked = true
+            return true
+        case .timed(let e):
+            exp = e
+            UserDefaults.standard.set(k, forKey: "vx.key")
+            saved = k
+            unlocked = true
+            return true
+        case .bad:
+            return false
+        }
+    }
+
+    func saveKey(_ raw: String) {
+        let k = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !k.isEmpty else { return }
+        UserDefaults.standard.set(k, forKey: "vx.key")
+        saved = k
+    }
+
+    func eraseKey() {
+        UserDefaults.standard.removeObject(forKey: "vx.key")
+        saved = nil
+        exp = nil
+        unlocked = false
     }
 
     func lock() {
-        UserDefaults.standard.set(false, forKey: "vx.unlocked")
         unlocked = false
+    }
+
+    func left() -> String? {
+        guard let e = exp else { return nil }
+        let s = max(0, Int(e.timeIntervalSince(now)))
+        let d = s / 86400, h = (s % 86400) / 3600, m = (s % 3600) / 60, x = s % 60
+        return d > 0 ? String(format: "%dd %02d:%02d:%02d", d, h, m, x)
+                     : String(format: "%02d:%02d:%02d", h, m, x)
     }
 
     func toggle(_ p: VXPatch) {
@@ -96,11 +200,8 @@ struct VXContact: View {
     private func link(_ t: String, _ u: String, _ c: Color) -> some View {
         Link(destination: URL(string: u)!) {
             HStack(spacing: 6) {
-                Image(systemName: "paperplane.fill")
-                    .font(.system(size: 10, weight: .bold))
-                Text(t)
-                    .font(.system(size: 9, weight: .black))
-                    .tracking(3)
+                Image(systemName: "paperplane.fill").font(.system(size: 10, weight: .bold))
+                Text(t).font(.system(size: 9, weight: .black)).tracking(3)
             }
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
@@ -137,7 +238,7 @@ struct VXDoor: View {
                     .padding(.top, 7)
                 Spacer()
 
-                VStack(spacing: 11) {
+                VStack(spacing: 10) {
                     Text("CLAVE DE ACCESO")
                         .font(.system(size: 8, weight: .black))
                         .tracking(4)
@@ -154,8 +255,61 @@ struct VXDoor: View {
                         .background(VX.paper)
                         .overlay(Rectangle().stroke(bad ? VX.red : VX.ink.opacity(0.35), lineWidth: 1.2))
 
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(vxIOSSupported() ? VX.green : VX.red)
+                            .frame(width: 6, height: 6)
+                        Text("\(vxIOSLabel()) · \(vxIOSSupported() ? "SOPORTADO" : "NO SOPORTADO")")
+                            .font(.system(size: 8, weight: .black))
+                            .tracking(1.6)
+                            .foregroundStyle(vxIOSSupported() ? VX.green : VX.red)
+                        Spacer()
+                    }
+
+                    if let saved = s.saved {
+                        HStack(spacing: 6) {
+                            Text("GUARDADA")
+                                .font(.system(size: 8, weight: .black)).tracking(2)
+                                .foregroundStyle(VX.dim)
+                            Text(saved)
+                                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(VX.ink.opacity(0.6))
+                                .lineLimit(1)
+                            Spacer()
+                            if let l = s.left() {
+                                Text(l)
+                                    .font(.system(size: 8, weight: .black, design: .monospaced))
+                                    .foregroundStyle(VX.red)
+                            }
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        Button {
+                            s.saveKey(key)
+                        } label: {
+                            Text("GUARDAR")
+                                .font(.system(size: 9, weight: .black)).tracking(2.5)
+                                .foregroundStyle(VX.ink)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
+                                .overlay(Rectangle().stroke(VX.ink.opacity(0.4), lineWidth: 1.2))
+                        }
+                        Button {
+                            s.eraseKey()
+                            key = ""
+                        } label: {
+                            Text("BORRAR")
+                                .font(.system(size: 9, weight: .black)).tracking(2.5)
+                                .foregroundStyle(VX.red)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
+                                .overlay(Rectangle().stroke(VX.red, lineWidth: 1.2))
+                        }
+                    }
+
                     Button {
-                        if !s.validate(key) {
+                        if !s.enter(key) {
                             bad = true
                             s.play("off")
                             UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -166,11 +320,8 @@ struct VXDoor: View {
                         }
                     } label: {
                         HStack(spacing: 8) {
-                            Image(systemName: "lock.open.fill")
-                                .font(.system(size: 11, weight: .bold))
-                            Text("ENTRAR")
-                                .font(.system(size: 12, weight: .black))
-                                .tracking(5)
+                            Image(systemName: "lock.open.fill").font(.system(size: 11, weight: .bold))
+                            Text("ENTRAR").font(.system(size: 12, weight: .black)).tracking(5)
                         }
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -179,7 +330,7 @@ struct VXDoor: View {
                     }
                 }
                 .padding(.horizontal, 22)
-                .padding(.vertical, 20)
+                .padding(.vertical, 18)
                 .vxSlab()
                 .padding(.horizontal, 26)
 
@@ -190,7 +341,10 @@ struct VXDoor: View {
                     .padding(.bottom, 28)
             }
         }
-        .onAppear { focus = true }
+        .onAppear {
+            focus = true
+            if let k = s.saved { key = k }
+        }
     }
 }
 
@@ -228,14 +382,8 @@ struct VXPanel: View {
             HStack(spacing: 8) {
                 VXMark(size: 17)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("EXTERNAL")
-                        .font(.system(size: 9, weight: .black))
-                        .tracking(4)
-                        .foregroundStyle(VX.ink)
-                    Text("VEEX")
-                        .font(.system(size: 7, weight: .heavy))
-                        .tracking(3)
-                        .foregroundStyle(VX.dim)
+                    Text("EXTERNAL").font(.system(size: 9, weight: .black)).tracking(4).foregroundStyle(VX.ink)
+                    Text("VEEX").font(.system(size: 7, weight: .heavy)).tracking(3).foregroundStyle(VX.dim)
                 }
                 Spacer()
                 Button { s.mute.toggle(); UserDefaults.standard.set(s.mute, forKey: "vx.mute") } label: {
@@ -279,9 +427,7 @@ struct VXPanel: View {
     private func row(_ p: VXPatch) -> some View {
         let active = s.on.contains(p.id)
         return HStack(spacing: 11) {
-            Rectangle()
-                .fill(active ? VX.green : VX.red)
-                .frame(width: 3, height: 24)
+            Rectangle().fill(active ? VX.green : VX.red).frame(width: 3, height: 24)
             Text(p.name)
                 .font(.system(size: 11, weight: .black))
                 .tracking(1.3)
@@ -291,11 +437,8 @@ struct VXPanel: View {
                 s.toggle(p)
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: active ? "checkmark" : "power")
-                        .font(.system(size: 8, weight: .black))
-                    Text(active ? "ON" : "OFF")
-                        .font(.system(size: 9, weight: .black))
-                        .tracking(1.5)
+                    Image(systemName: active ? "checkmark" : "power").font(.system(size: 8, weight: .black))
+                    Text(active ? "ON" : "OFF").font(.system(size: 9, weight: .black)).tracking(1.5)
                 }
                 .foregroundStyle(.white)
                 .frame(width: 58, height: 28)
@@ -321,9 +464,15 @@ struct VXPanel: View {
                     .foregroundStyle(VX.dim)
                 }
                 Spacer()
-                Text("\(s.on.count) ACTIVOS")
-                    .font(.system(size: 8, weight: .black)).tracking(2)
-                    .foregroundStyle(VX.green)
+                if let l = s.left() {
+                    Text(l)
+                        .font(.system(size: 8, weight: .black, design: .monospaced))
+                        .foregroundStyle(VX.red)
+                } else {
+                    Text("\(s.on.count) ACTIVOS")
+                        .font(.system(size: 8, weight: .black)).tracking(2)
+                        .foregroundStyle(VX.green)
+                }
             }
             .padding(.top, 8)
             VXContact()
