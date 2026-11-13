@@ -40,7 +40,7 @@ jobs:
           rm -rf "$APP/veex/patches" "$APP/veex/voices"
           echo "APP=$APP" >> $GITHUB_ENV
           echo "EXE=$EXE" >> $GITHUB_ENV
-      - name: Nombre e icono
+      - name: Nombre
         run: |
           set -e
           python3 - "$APP" <<'PY'
@@ -53,24 +53,42 @@ jobs:
           p['UILaunchScreen'] = {}
           p['CFBundleDisplayName'] = 'VEEX'
           p['CFBundleName'] = 'VEEX'
+          p['CFBundleIconName'] = 'AppIcon'
+          p.pop('CFBundleIcons', None)
+          p.pop('CFBundleIcons~ipad', None)
           plistlib.dump(p, open(ip, 'wb'))
           for d in os.listdir(app):
               if d.endswith('.lproj'):
                   open(os.path.join(app, d, 'InfoPlist.strings'), 'w').write(
                       '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n')
-                  print("localizado", d)
           print("nombre listo")
           PY
-          ICON="$RUNNER_TEMP/icon.png"
-          sips -p 1360 1360 --padColor FFFFFF "$GITHUB_WORKSPACE/IMG_5380.png" --out "$ICON" >/dev/null
-          sips -z 1024 1024 "$ICON" >/dev/null
-          for f in "$APP"/AppIcon*.png "$APP"/Icon*.png; do
-            [ -e "$f" ] || continue
-            W=$(sips -g pixelWidth "$f" | awk '/pixelWidth/{print $2}')
-            H=$(sips -g pixelHeight "$f" | awk '/pixelHeight/{print $2}')
-            sips -z "$H" "$W" "$ICON" --out "$f" >/dev/null
-            echo "icono $W x $H"
-          done
+      - name: Icono
+        run: |
+          set -e
+          test -f "$GITHUB_WORKSPACE/IMG_5380.png" || { echo "falta IMG_5380.png"; exit 1; }
+          SRC="$RUNNER_TEMP/src.png"
+          sips -p 1360 1360 --padColor FFFFFF "$GITHUB_WORKSPACE/IMG_5380.png" --out "$SRC" >/dev/null
+          sips -z 1024 1024 "$SRC" >/dev/null
+          SET="$RUNNER_TEMP/cat.xcassets/AppIcon.appiconset"
+          mkdir -p "$SET"
+          cp "$SRC" "$SET/icon.png"
+          cat > "$SET/Contents.json" <<'JSON'
+          {
+            "images": [
+              { "filename": "icon.png", "idiom": "universal", "platform": "ios", "size": "1024x1024" }
+            ],
+            "info": { "author": "xcode", "version": 1 }
+          }
+          JSON
+          OUT="$RUNNER_TEMP/out" && mkdir -p "$OUT"
+          xcrun actool --compile "$OUT" \
+            --platform iphoneos --minimum-deployment-target 16.0 \
+            --app-icon AppIcon --output-partial-info-plist "$RUNNER_TEMP/partial.plist" \
+            "$RUNNER_TEMP/cat.xcassets" >/dev/null
+          cp "$OUT/Assets.car" "$APP/Assets.car"
+          rm -f "$APP"/AppIcon*.png
+          echo "icono compilado"
       - name: Inyectar
         run: |
           set -e
@@ -86,7 +104,6 @@ jobs:
           b.write(sys.argv[1])
           PY
           otool -L "$APP/$EXE" | grep -q libveex && echo "INYECTADA" || { echo "NO INYECTADA"; exit 1; }
-          ls -la "$APP/Frameworks"
           codesign --force --sign - "$APP/Frameworks/libveex.dylib"
           codesign --force --sign - "$APP"
           cd "$RUNNER_TEMP/w" && zip -qry "$GITHUB_WORKSPACE/VEEX.ipa" Payload
