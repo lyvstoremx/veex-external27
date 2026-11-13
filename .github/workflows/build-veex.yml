@@ -1,147 +1,205 @@
 name: build-veex
-on: workflow_dispatch
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
 
 permissions:
   contents: write
+
+env:
+  APP_NAME: "VEEX"
+  BUNDLE_ID: "com.veex.external27"
+  OLD_REPO: "https://github.com/lyvstoremx/VEEX-EXTERNAL.git"
 
 jobs:
   build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Traer recursos
-        run: |
-          set -e
-          git clone --depth 1 https://github.com/lyvstoremx/VEEX-EXTERNAL "$RUNNER_TEMP/src"
-      - name: Compilar
-        run: |
-          set -e
-          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          mkdir -p build
-          xcrun --sdk iphoneos clang -target arm64-apple-ios16.0 -isysroot "$SDK" \
-            -fobjc-arc -O2 -c veex/main.m -o build/main.o
-          xcrun --sdk iphoneos swiftc -target arm64-apple-ios16.0 -sdk "$SDK" -O \
-            -emit-library -o build/libveex.dylib \
-            veex/VXTheme.swift veex/VXPanel.swift veex/VXPreview.swift build/main.o \
-            -framework UIKit -framework SwiftUI
-          codesign --force --sign - build/libveex.dylib
-      - name: Preparar
-        run: |
-          set -e
-          W="$RUNNER_TEMP/w" && mkdir -p "$W" && cd "$W"
-          curl -sSL -o base.ipa "https://github.com/lyvstoremx/VEEX-EXTERNAL/raw/main/3105ios27.ipa"
-          unzip -o base.ipa >/dev/null
-          APP=$(find "$W/Payload" -maxdepth 1 -name '*.app' | head -1)
-          EXE=$(python3 -c "import plistlib,sys;print(plistlib.load(open(sys.argv[1],'rb'))['CFBundleExecutable'])" "$APP/Info.plist")
-          mkdir -p "$APP/veex"
-          cp -R "$RUNNER_TEMP/src/patches/." "$APP/veex/"
-          cp -R "$RUNNER_TEMP/src/voices/." "$APP/veex/"
-          cp "$GITHUB_WORKSPACE/IMG_5360.png" "$APP/veex/vx_front.png"
-          cp "$GITHUB_WORKSPACE/IMG_5365.png" "$APP/veex/vx_right.png"
-          cp "$GITHUB_WORKSPACE/IMG_5361.png" "$APP/veex/vx_back.png"
-          cp "$GITHUB_WORKSPACE/IMG_5364.png" "$APP/veex/vx_left.png"
-          rm -rf "$APP/veex/patches" "$APP/veex/voices"
-          echo "APP=$APP" >> $GITHUB_ENV
-          echo "EXE=$EXE" >> $GITHUB_ENV
-      - name: Nombre, icono y splash
-        run: |
-          set -e
-          test -f "$GITHUB_WORKSPACE/IMG_5384.png" || { echo "falta IMG_5384.png"; exit 1; }
-          SRC="$RUNNER_TEMP/base.png"
-          sips -p 1360 1360 --padColor 000000 "$GITHUB_WORKSPACE/IMG_5384.png" --out "$SRC" >/dev/null
-          rm -f "$APP"/AppIcon*.png
-          for pair in "1024 1024" "180 60x60@3x" "120 60x60@2x" "87 29x29@3x" "80 40x40@2x" "60 40x40@3x" "58 29x29@2x" "40 20x20@2x" "152 76x76@2x" "167 83.5x83.5@2x"; do
-            set -- $pair
-            sips -z "$1" "$1" "$SRC" --out "$APP/AppIcon$2.png" >/dev/null
-          done
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-          python3 -m venv "$RUNNER_TEMP/venv"
-          source "$RUNNER_TEMP/venv/bin/activate"
-          pip install --quiet pillow
-          python3 - "$SRC" "$APP/LaunchLogo.png" <<'PY'
-          import sys
-          from PIL import Image
-          W, H = 1170, 2532
-          bg = Image.new("RGB", (W, H), (0, 0, 0))
-          logo = Image.open(sys.argv[1]).convert("RGB")
-          tw = int(W * 0.72)
-          th = int(logo.height * tw / logo.width)
-          logo = logo.resize((tw, th), Image.LANCZOS)
-          bg.paste(logo, ((W - tw) // 2, (H - th) // 2))
-          bg.save(sys.argv[2], "PNG")
-          PY
-
-          rm -rf "$APP"/*.storyboardc "$APP"/*.nib "$APP"/Base.lproj
-          python3 - "$APP/Info.plist" <<'PY'
-          import sys, plistlib
-          p = plistlib.load(open(sys.argv[1], 'rb'))
-          for k in ('UILaunchStoryboardName', 'UILaunchStoryboardFile',
-                    'UILaunchStoryboardName~ipad', 'CFBundleIconName',
-                    'CFBundleIcons', 'CFBundleIcons~ipad'):
-              p.pop(k, None)
-          p['UILaunchScreen'] = {'UIImageName': 'LaunchLogo',
-                                 'UIImageRespectsSafeAreaInsets': False}
-          p['UIUserInterfaceStyle'] = 'Dark'
-          p['CFBundleDisplayName'] = 'VEEX'
-          p['CFBundleName'] = 'VEEX'
-          p['CFBundleIcons'] = {
-              'CFBundlePrimaryIcon': {
-                  'CFBundleIconFiles': ['AppIcon60x60', 'AppIcon29x29', 'AppIcon40x40']
-              }
-          }
-          v = p.get('CFBundleVersion', '1')
-          try:
-              p['CFBundleVersion'] = str(int(v) + 1)
-          except Exception:
-              p['CFBundleVersion'] = '2'
-          plistlib.dump(p, open(sys.argv[1], 'wb'))
-          print("version", p['CFBundleVersion'])
-          PY
-          for d in "$APP"/*.lproj; do
-            [ -d "$d" ] && printf '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n' > "$d/InfoPlist.strings"
-          done
-      - name: Ver plist
-        run: |
-          python3 - "$APP/Info.plist" <<'PY'
-          import sys, plistlib
-          p = plistlib.load(open(sys.argv[1],'rb'))
-          for k in ('UILaunchScreen','UILaunchStoryboardName','UIUserInterfaceStyle'):
-              print(k, '=', p.get(k, '(ausente)'))
-          PY
-          ls -la "$APP" | grep -iE "launch|storyboard"
-      - name: Cuadros
+      - name: Herramientas
         run: |
           set -e
-          VID=$(ls "$GITHUB_WORKSPACE"/*.mp4 | head -1)
-          mkdir -p "$GITHUB_WORKSPACE/frames"
-          ffmpeg -y -i "$VID" -vf "fps=4,scale=400:-1" "$GITHUB_WORKSPACE/frames/f%03d.png" >/dev/null 2>&1
-          ls "$GITHUB_WORKSPACE/frames" | wc -l
-      - name: Publicar cuadros
+          brew install ffmpeg || true
+          python3 -m venv $RUNNER_TEMP/venv
+          source $RUNNER_TEMP/venv/bin/activate
+          pip install --upgrade pip
+          pip install lief
+          echo "$RUNNER_TEMP/venv/bin" >> $GITHUB_PATH
+
+      - name: Recursos del repo viejo
         run: |
+          set -e
+          git clone --depth 1 "$OLD_REPO" $RUNNER_TEMP/old
+          mkdir -p "$GITHUB_WORKSPACE/patches" "$GITHUB_WORKSPACE/voices"
+          cp -R $RUNNER_TEMP/old/patches/. "$GITHUB_WORKSPACE/patches/" || true
+          cp -R $RUNNER_TEMP/old/voices/. "$GITHUB_WORKSPACE/voices/" || true
+
+      - name: IPA
+        run: |
+          set -e
           cd "$GITHUB_WORKSPACE"
-          git config user.name vx
-          git config user.email vx@local
-          git add frames
-          git commit -m "cuadros" || true
-          git push || true
+          if [ ! -f 3105ios27.ipa ]; then
+            curl -fL -o 3105ios27.ipa "${{ secrets.IPA_URL }}"
+          fi
+          unzip -q 3105ios27.ipa -d work
+          ls -la work/Payload
+
+      - name: Compilar dylib
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p out
+          xcrun -sdk iphoneos swiftc \
+            -target arm64-apple-ios16.0 \
+            -miphoneos-version-min=16.0 \
+            -emit-library -module-name Veex \
+            -o out/libveex.dylib \
+            -import-objc-header VXBridge.h \
+            main.m VXPanel.swift VXPreview.swift VXTheme.swift \
+            -framework UIKit -framework Foundation -framework SwiftUI -framework QuartzCore
+          lipo -info out/libveex.dylib
+          otool -L out/libveex.dylib
+
       - name: Inyectar
         run: |
           set -e
-          source "$RUNNER_TEMP/venv/bin/activate"
-          pip install --quiet lief
+          cd "$GITHUB_WORKSPACE"
+          APP=$(ls -d work/Payload/*.app | head -1)
+          BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
           mkdir -p "$APP/Frameworks"
-          cp "$GITHUB_WORKSPACE/build/libveex.dylib" "$APP/Frameworks/"
-          python3 - "$APP/$EXE" <<'PY'
-          import lief, sys
-          b = lief.MachO.parse(sys.argv[1]).at(0)
-          b.add_library("@executable_path/Frameworks/libveex.dylib")
-          b.write(sys.argv[1])
-          PY
-          otool -L "$APP/$EXE" | grep -q libveex && echo "INYECTADA" || { echo "NO INYECTADA"; exit 1; }
-          codesign --force --sign - "$APP/Frameworks/libveex.dylib"
-          codesign --force --sign - "$APP"
-          cd "$RUNNER_TEMP/w" && zip -qry "$GITHUB_WORKSPACE/VEEX.ipa" Payload
-      - uses: actions/upload-artifact@v4
+          cp out/libveex.dylib "$APP/Frameworks/libveex.dylib"
+          python3 tools/inject.py "$BIN" "$APP/Frameworks/libveex.dylib"
+          otool -L "$BIN" | grep -q libveex.dylib || { echo "FALLO LA INYECCION"; exit 1; }
+          install_name_tool -add_rpath @executable_path/Frameworks "$BIN" 2>/dev/null || true
+          echo "inyectado en $BIN"
+
+      - name: Nombre y splash
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          APP=$(ls -d work/Payload/*.app | head -1)
+          PL="$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$PL"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleName string $APP_NAME" "$PL"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$PL" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName" "$PL" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :UILaunchScreen" "$PL" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UILaunchScreen dict" "$PL"
+          /usr/libexec/PlistBuddy -c "Add :UILaunchScreen:UIImageName string LaunchLogo" "$PL"
+          for d in "$APP"/*.lproj; do
+            [ -d "$d" ] || continue
+            printf '"CFBundleDisplayName" = "%s";\n"CFBundleName" = "%s";\n' "$APP_NAME" "$APP_NAME" > "$d/InfoPlist.strings"
+          done
+          for s in LaunchLogo.png LaunchLogo@2x.png LaunchLogo@3x.png; do
+            [ -f "$s" ] && cp "$s" "$APP/$s"
+          done
+          echo "plist listo"
+
+      - name: Icono
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          SRC=""
+          for c in IMG_5384.png IMG_5380.png icono.png; do
+            if [ -f "$c" ]; then SRC="$c"; break; fi
+          done
+          APP=$(ls -d work/Payload/*.app | head -1)
+          if [ -z "$SRC" ]; then echo "sin logo, se deja el icono original"; exit 0; fi
+          XC=$RUNNER_TEMP/Assets.xcassets/AppIcon.appiconset
+          rm -rf $RUNNER_TEMP/Assets.xcassets
+          mkdir -p "$XC"
+          for s in 20 29 40 58 60 76 80 87 120 152 167 180 1024; do
+            sips -z $s $s "$SRC" --out "$XC/i$s.png" >/dev/null 2>&1 || true
+          done
+          cat > "$XC/Contents.json" <<'JSON'
+          {
+            "images": [
+              {"size":"20x20","idiom":"iphone","filename":"i40.png","scale":"2x"},
+              {"size":"20x20","idiom":"iphone","filename":"i60.png","scale":"3x"},
+              {"size":"29x29","idiom":"iphone","filename":"i29.png","scale":"1x"},
+              {"size":"29x29","idiom":"iphone","filename":"i58.png","scale":"2x"},
+              {"size":"29x29","idiom":"iphone","filename":"i87.png","scale":"3x"},
+              {"size":"40x40","idiom":"iphone","filename":"i40.png","scale":"1x"},
+              {"size":"40x40","idiom":"iphone","filename":"i80.png","scale":"2x"},
+              {"size":"40x40","idiom":"iphone","filename":"i120.png","scale":"3x"},
+              {"size":"60x60","idiom":"iphone","filename":"i120.png","scale":"2x"},
+              {"size":"60x60","idiom":"iphone","filename":"i180.png","scale":"3x"},
+              {"size":"76x76","idiom":"ipad","filename":"i76.png","scale":"1x"},
+              {"size":"76x76","idiom":"ipad","filename":"i152.png","scale":"2x"},
+              {"size":"83.5x83.5","idiom":"ipad","filename":"i167.png","scale":"2x"},
+              {"size":"1024x1024","idiom":"ios-marketing","filename":"i1024.png","scale":"1x"}
+            ],
+            "info": {"version":1,"author":"xcode"}
+          }
+          JSON
+          set +e
+          xcrun actool $RUNNER_TEMP/Assets.xcassets \
+            --compile $RUNNER_TEMP/xcout \
+            --platform iphoneos --minimum-deployment-target 16.0 \
+            --app-icon AppIcon \
+            --output-partial-info-plist $RUNNER_TEMP/partial.plist \
+            > $RUNNER_TEMP/actool.log 2>&1
+          RC=$?
+          set -e
+          if [ $RC -eq 0 ] && [ -f $RUNNER_TEMP/xcout/Assets.car ]; then
+            cp $RUNNER_TEMP/xcout/Assets.car "$APP/Assets.car"
+            echo "Assets.car reemplazado"
+          else
+            echo "actool fallo, respaldo por PNG suelto"
+            cat $RUNNER_TEMP/actool.log || true
+            for s in 120 180; do sips -z $s $s "$SRC" --out "$APP/AppIcon60x60@$([ $s = 120 ] && echo 2x || echo 3x).png" >/dev/null 2>&1 || true; done
+          fi
+
+      - name: Firmar
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          APP=$(ls -d work/Payload/*.app | head -1)
+          find "$APP" -name "*.dylib" -exec codesign --force --sign - --timestamp=none {} \;
+          codesign --force --sign - --timestamp=none "$APP"
+          codesign -dv "$APP" 2>&1 | head -5
+
+      - name: Ver plist
+        run: |
+          APP=$(ls -d work/Payload/*.app | head -1)
+          /usr/libexec/PlistBuddy -c "Print" "$APP/Info.plist" | head -60
+
+      - name: Cuadros
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          VID=$(ls ScreenRecording*.mp4 2>/dev/null | head -1 || true)
+          if [ -z "$VID" ]; then echo "no hay video"; exit 0; fi
+          echo "video: $VID"
+          rm -rf frames && mkdir -p frames
+          ffmpeg -y -i "$VID" -vf "fps=4,scale=360:-1" frames/f_%03d.png
+          ls frames | wc -l
+
+      - name: Publicar cuadros
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "veex-bot"
+          git config user.email "bot@veex.local"
+          git add -f frames
+          git commit -m "cuadros del arranque" || echo "sin cambios"
+          git push || true
+
+      - name: Empaquetar
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE/work"
+          rm -f ../VEEX.ipa
+          zip -qry ../VEEX.ipa Payload
+
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v4
         with:
-          name: VEEX
+          name: VEEX.ipa
           path: VEEX.ipa
