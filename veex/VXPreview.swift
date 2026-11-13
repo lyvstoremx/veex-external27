@@ -4,33 +4,35 @@ struct VXPreview: View {
     @ObservedObject var s: VXStore
     @State private var angle: Double = 0
     @State private var base: Double = 0
-    @State private var pulse = false
+    @State private var sway = false
 
-    private struct Callout {
-        let id: String?
+    private struct Mark {
         let label: String
-        let x: CGFloat
-        let y: CGFloat
+        let lx: CGFloat
+        let ly: CGFloat
+        let px: CGFloat
+        let py: CGFloat
         let back: Bool
     }
 
-    private let marks: [Callout] = [
-        .init(id: nil, label: "HEAD", x: 0.50, y: 0.12, back: false),
-        .init(id: nil, label: "NECK", x: 0.50, y: 0.23, back: false),
-        .init(id: "aim_pecho", label: "PECHO", x: 0.50, y: 0.33, back: false),
-        .init(id: "aim_drag", label: "DRAG", x: 0.19, y: 0.60, back: false),
-        .init(id: "balas_magicas", label: "BALAS MÁGICAS", x: 0.81, y: 0.58, back: false),
-        .init(id: nil, label: "ESPALDA", x: 0.50, y: 0.40, back: true)
+    private let marks: [Mark] = [
+        .init(label: "PECHO", lx: 0.14, ly: 0.38, px: 0.44, py: 0.33, back: false),
+        .init(label: "DRAG", lx: 0.17, ly: 0.20, px: 0.44, py: 0.24, back: false),
+        .init(label: "BALAS MÁGICAS", lx: 0.82, ly: 0.58, px: 0.60, py: 0.52, back: false),
+        .init(label: "ESPALDA", lx: 0.50, ly: 0.08, px: 0.50, py: 0.30, back: true)
     ]
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             HStack {
                 Text("VISUALIZACIÓN")
                     .font(.system(size: 10, weight: .heavy))
                     .tracking(4)
                     .foregroundStyle(Color(white: 0.45))
                 Spacer()
+                Text("solo referencia")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color(white: 0.3))
                 Button {
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) { angle = 0; base = 0 }
                 } label: {
@@ -46,13 +48,14 @@ struct VXPreview: View {
                 let w = g.size.width
                 let h = g.size.height
                 ZStack {
-                    radar(w: w)
+                    arcs(w: w)
+                    connectors(w: w, h: h)
                     figure(w: w, h: h)
                     labels(w: w, h: h)
                     Text("arrastra para girar")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.35))
-                        .position(x: w * 0.5, y: h * 0.97)
+                        .foregroundStyle(Color(white: 0.32))
+                        .position(x: w * 0.5, y: h * 0.975)
                 }
                 .contentShape(Rectangle())
                 .gesture(
@@ -61,50 +64,67 @@ struct VXPreview: View {
                             angle = max(-180, min(180, base + Double(v.translation.width) * 0.7))
                         }
                         .onEnded { _ in
-                            withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
-                                if abs(angle) < 30 { angle = 0 }
-                                else if angle > 120 { angle = 180 }
-                                else if angle < -120 { angle = -180 }
-                                base = angle
-                            }
+                            let target: Double = abs(angle) >= 90 ? (angle > 0 ? 180 : -180) : 0
+                            withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) { angle = target }
+                            base = target
                         }
                 )
             }
         }
         .onAppear {
-            withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) { pulse = true }
+            withAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true)) { sway = true }
         }
     }
 
-    private func radar(w: CGFloat) -> some View {
+    private func arcs(w: CGFloat) -> some View {
         ZStack {
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .stroke(Color(red: 0.72, green: 0.07, blue: 0.09).opacity(0.3), lineWidth: 1)
-                    .frame(width: w * (0.45 + CGFloat(i) * 0.2))
+            Circle()
+                .trim(from: 0.55, to: 0.95)
+                .stroke(Color(red: 0.85, green: 0.1, blue: 0.12).opacity(0.55), lineWidth: 1.5)
+                .frame(width: w * 0.86, height: w * 0.86)
+            Circle()
+                .trim(from: 0.05, to: 0.45)
+                .stroke(Color(white: 0.35), lineWidth: 1)
+                .frame(width: w * 0.86, height: w * 0.86)
+        }
+    }
+
+    private func connectors(w: CGFloat, h: CGFloat) -> some View {
+        let showFront = abs(angle) < 55
+        let showBack = abs(angle) > 125
+        return Canvas { ctx, _ in
+            for m in marks {
+                if m.back ? !showBack : !showFront { continue }
+                var p = Path()
+                p.move(to: CGPoint(x: w * m.lx, y: h * m.ly))
+                p.addLine(to: CGPoint(x: w * m.px, y: h * m.py))
+                ctx.stroke(p,
+                           with: .color(.white.opacity(0.22)),
+                           style: StrokeStyle(lineWidth: 0.8, dash: [2.5, 3]))
+                ctx.fill(Path(ellipseIn: CGRect(x: w * m.px - 2, y: h * m.py - 2, width: 4, height: 4)),
+                         with: .color(.white.opacity(0.6)))
             }
         }
-        .opacity(0.8)
     }
 
     private func figure(w: CGFloat, h: CGFloat) -> some View {
         let facing = abs(angle) < 90
-        return ZStack {
+        return Group {
             if let img = load(facing ? "vx_front" : "vx_back") {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFit()
                     .scaleEffect(x: facing ? 1 : -1, y: 1)
-                    .scaleEffect(pulse ? 1.01 : 1.0)
             } else {
                 Text("faltan las imágenes")
                     .font(.system(size: 11))
                     .foregroundStyle(Color(white: 0.4))
             }
         }
-        .frame(height: h * 0.9)
-        .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.45)
-        .shadow(color: .black.opacity(0.6), radius: 14, y: 8)
+        .frame(height: h * 0.92)
+        .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+        .offset(y: sway ? -2 : 2)
+        .shadow(color: .black.opacity(0.7), radius: 12, y: 6)
     }
 
     private func load(_ n: String) -> UIImage? {
@@ -118,29 +138,15 @@ struct VXPreview: View {
         return ForEach(marks.indices, id: \.self) { i in
             let m = marks[i]
             if m.back ? showBack : showFront {
-                mark(m, w: w, h: h)
+                Text(m.label)
+                    .font(.system(size: 8, weight: .heavy))
+                    .tracking(1.2)
+                    .foregroundStyle(Color(white: 0.75))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .overlay(Rectangle().stroke(Color(white: 0.3), lineWidth: 0.8))
+                    .position(x: w * m.lx, y: h * m.ly)
             }
         }
-    }
-
-    private func mark(_ m: Callout, w: CGFloat, h: CGFloat) -> some View {
-        let active = m.id.map { s.on.contains($0) } ?? false
-        return Text(m.label)
-            .font(.system(size: 9, weight: .heavy))
-            .tracking(1)
-            .foregroundStyle(active ? .white : Color(white: 0.68))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(active ? Color(red: 0.72, green: 0.07, blue: 0.09) : Color(white: 0.14))
-            .overlay(
-                Capsule().stroke(active ? Color.white.opacity(0.5)
-                                        : Color(red: 0.85, green: 0.1, blue: 0.12).opacity(0.45), lineWidth: 1)
-            )
-            .clipShape(Capsule())
-            .position(x: w * m.x, y: h * m.y)
-            .onTapGesture {
-                guard let id = m.id, let p = s.patches.first(where: { $0.id == id }) else { return }
-                s.toggle(p)
-            }
     }
 }
