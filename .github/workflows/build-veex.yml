@@ -40,17 +40,30 @@ jobs:
           rm -rf "$APP/veex/patches" "$APP/veex/voices"
           echo "APP=$APP" >> $GITHUB_ENV
           echo "EXE=$EXE" >> $GITHUB_ENV
-      - name: Quitar splash
+      - name: Nombre e icono
         run: |
+          set -e
           python3 - "$APP/Info.plist" <<'PY'
           import sys, plistlib
           p = plistlib.load(open(sys.argv[1], 'rb'))
           p.pop('UILaunchStoryboardName', None)
           p.pop('UILaunchStoryboardFile', None)
           p['UILaunchScreen'] = {}
+          p['CFBundleDisplayName'] = 'VEEX'
+          p['CFBundleName'] = 'VEEX'
           plistlib.dump(p, open(sys.argv[1], 'wb'))
-          print("splash fuera")
+          print("nombre y splash listos")
           PY
+          ICON="$RUNNER_TEMP/icon.png"
+          sips -p 1360 1360 --padColor FFFFFF "$GITHUB_WORKSPACE/IMG_5380.png" --out "$ICON" >/dev/null
+          sips -z 1024 1024 "$ICON" >/dev/null
+          for f in "$APP"/AppIcon*.png "$APP"/Icon*.png; do
+            [ -e "$f" ] || continue
+            W=$(sips -g pixelWidth "$f" | awk '/pixelWidth/{print $2}')
+            H=$(sips -g pixelHeight "$f" | awk '/pixelHeight/{print $2}')
+            sips -z "$H" "$W" "$ICON" --out "$f" >/dev/null
+            echo "icono $W x $H"
+          done
       - name: Inyectar
         run: |
           set -e
