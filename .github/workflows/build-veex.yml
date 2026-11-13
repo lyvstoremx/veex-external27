@@ -40,35 +40,49 @@ jobs:
           rm -rf "$APP/veex/patches" "$APP/veex/voices"
           echo "APP=$APP" >> $GITHUB_ENV
           echo "EXE=$EXE" >> $GITHUB_ENV
-      - name: Nombre e icono
+      - name: Nombre, icono y splash
         run: |
           set -e
           test -f "$GITHUB_WORKSPACE/IMG_5384.png" || { echo "falta IMG_5384.png"; exit 1; }
+          CAT="$RUNNER_TEMP/cat.xcassets"
+          mkdir -p "$CAT/AppIcon.appiconset" "$CAT/LaunchLogo.imageset" "$CAT/LaunchBg.colorset"
+
           SRC="$RUNNER_TEMP/base.png"
           sips -p 1360 1360 --padColor 000000 "$GITHUB_WORKSPACE/IMG_5384.png" --out "$SRC" >/dev/null
-          sips -Z 640 "$SRC" --out "$APP/LaunchLogo.png" >/dev/null
+          cp "$SRC" "$CAT/AppIcon.appiconset/icon.png"
+          cat > "$CAT/AppIcon.appiconset/Contents.json" <<'JSON'
+          {"images":[{"filename":"icon.png","idiom":"universal","platform":"ios","size":"1024x1024"}],"info":{"author":"xcode","version":1}}
+          JSON
+
+          sips -Z 640 "$SRC" --out "$CAT/LaunchLogo.imageset/logo.png" >/dev/null
+          cat > "$CAT/LaunchLogo.imageset/Contents.json" <<'JSON'
+          {"images":[{"filename":"logo.png","idiom":"universal","scale":"1x"}],"info":{"author":"xcode","version":1}}
+          JSON
+          cat > "$CAT/LaunchBg.colorset/Contents.json" <<'JSON'
+          {"colors":[{"color":{"color-space":"srgb","components":{"alpha":"1.000","blue":"0.000","green":"0.000","red":"0.000"}},"idiom":"universal"}],"info":{"author":"xcode","version":1}}
+          JSON
+
+          OUT="$RUNNER_TEMP/out" && mkdir -p "$OUT"
+          xcrun actool --compile "$OUT" \
+            --platform iphoneos --minimum-deployment-target 16.0 \
+            --app-icon AppIcon --output-partial-info-plist "$RUNNER_TEMP/partial.plist" \
+            "$CAT" >/dev/null
+          test -f "$OUT/Assets.car" || { echo "actool no genero Assets.car"; exit 1; }
+          cp "$OUT/Assets.car" "$APP/Assets.car"
           rm -f "$APP"/AppIcon*.png
-          for pair in "1024 1024" "180 60x60@3x" "120 60x60@2x" "87 29x29@3x" "80 40x40@2x" "60 40x40@3x" "58 29x29@2x" "40 20x20@2x" "152 76x76@2x" "167 83.5x83.5@2x"; do
-            set -- $pair
-            sips -z "$1" "$1" "$SRC" --out "$APP/AppIcon$2.png" >/dev/null
-          done
+
           rm -rf "$APP"/*.storyboardc "$APP"/*.nib "$APP"/Base.lproj
           python3 - "$APP/Info.plist" <<'PY'
           import sys, plistlib
           p = plistlib.load(open(sys.argv[1], 'rb'))
           for k in ('UILaunchStoryboardName', 'UILaunchStoryboardFile',
-                    'UILaunchStoryboardName~ipad', 'CFBundleIconName',
-                    'CFBundleIcons', 'CFBundleIcons~ipad'):
+                    'UILaunchStoryboardName~ipad', 'CFBundleIcons', 'CFBundleIcons~ipad'):
               p.pop(k, None)
-          p['UILaunchScreen'] = {'UIImageName': 'LaunchLogo'}
+          p['CFBundleIconName'] = 'AppIcon'
+          p['UILaunchScreen'] = {'UIImageName': 'LaunchLogo', 'UIColorName': 'LaunchBg'}
           p['UIUserInterfaceStyle'] = 'Dark'
           p['CFBundleDisplayName'] = 'VEEX'
           p['CFBundleName'] = 'VEEX'
-          p['CFBundleIcons'] = {
-              'CFBundlePrimaryIcon': {
-                  'CFBundleIconFiles': ['AppIcon60x60', 'AppIcon29x29', 'AppIcon40x40']
-              }
-          }
           v = p.get('CFBundleVersion', '1')
           try:
               p['CFBundleVersion'] = str(int(v) + 1)
@@ -80,7 +94,7 @@ jobs:
           for d in "$APP"/*.lproj; do
             [ -d "$d" ] && printf '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n' > "$d/InfoPlist.strings"
           done
-          ls -la "$APP" | grep -E "AppIcon|LaunchLogo"
+          ls -la "$APP/Assets.car"
       - name: Inyectar
         run: |
           set -e
