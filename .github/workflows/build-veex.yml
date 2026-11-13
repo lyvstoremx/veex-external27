@@ -220,6 +220,13 @@ jobs:
             echo "actool fallo"
             exit 1
           fi
+          cp "$XC/i120.png" "$APP/AppIcon60x60@2x.png"
+          cp "$XC/i180.png" "$APP/AppIcon60x60@3x.png"
+          cp "$XC/i1024.png" "$APP/iTunesArtwork@2x"
+          cp "$XC/i1024.png" work/iTunesArtwork
+          cp "$XC/i1024.png" work/iTunesArtwork@2x
+          cp "$XC/i1024.png" work/iTunesArtwork@3x
+          echo "iconos de instalador listos"
 
       - name: Firmar
         run: |
@@ -240,7 +247,7 @@ jobs:
           set -e
           cd "$GITHUB_WORKSPACE/work"
           rm -f ../VEEX.ipa
-          zip -qry ../VEEX.ipa Payload
+          zip -qry ../VEEX.ipa iTunesArtwork iTunesArtwork@2x iTunesArtwork@3x Payload
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v4
