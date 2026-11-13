@@ -18,7 +18,8 @@ jobs:
           xcrun --sdk iphoneos clang -target arm64-apple-ios16.0 -isysroot "$SDK" \
             -fobjc-arc -O2 -c veex/main.m -o build/main.o
           xcrun --sdk iphoneos swiftc -target arm64-apple-ios16.0 -sdk "$SDK" -O \
-            -emit-library -o build/libveex.dylib veex/VXPanel.swift veex/VXPreview.swift build/main.o \
+            -emit-library -o build/libveex.dylib \
+            veex/VXTheme.swift veex/VXPanel.swift veex/VXPreview.swift build/main.o \
             -framework UIKit -framework SwiftUI
           codesign --force --sign - build/libveex.dylib
       - name: Preparar
