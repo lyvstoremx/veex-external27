@@ -86,13 +86,19 @@ jobs:
           python3 - "$BIN" <<'PY'
           import sys, lief
           p = sys.argv[1]
-          b = lief.MachO.parse(p)
-          b = b.at(0)
+          b = lief.MachO.parse(p).at(0)
           name = "@executable_path/Frameworks/libveex.dylib"
-          try:
-              cmd = lief.MachO.DylibCommand.dylib(name)
-          except Exception:
-              cmd = lief.MachO.DylibCommand.create(name)
+          cmd = None
+          for make in (lambda: lief.MachO.DylibCommand.load_dylib(name),
+                       lambda: lief.MachO.DylibCommand.dylib(name),
+                       lambda: lief.MachO.DylibCommand(name)):
+              try:
+                  cmd = make()
+                  if cmd is not None: break
+              except Exception as e:
+                  print("variante fallo:", e)
+          if cmd is None:
+              raise SystemExit("no se pudo crear LC_LOAD_DYLIB")
           b.add(cmd)
           b.write(p)
           print("LC_LOAD_DYLIB agregado")
