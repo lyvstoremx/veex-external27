@@ -1,24 +1,24 @@
 import SwiftUI
 
 enum VX {
-    static let ink = Color(white: 0.035)
-    static let slab = Color(white: 0.085)
-    static let paper = Color(white: 0.96)
-    static let dim = Color(white: 0.48)
-    static let red = Color(red: 0.80, green: 0.06, blue: 0.08)
+    static let ink = Color(white: 0.06)
+    static let paper = Color(white: 0.965)
+    static let slab = Color(white: 1.0)
+    static let dim = Color(white: 0.42)
+    static let red = Color(red: 0.78, green: 0.06, blue: 0.08)
 }
 
 struct VXNoise: View {
     var body: some View {
         Canvas { ctx, size in
             var g = SystemRandomNumberGenerator()
-            for _ in 0..<1600 {
+            for _ in 0..<1500 {
                 let x = CGFloat.random(in: 0...size.width, using: &g)
                 let y = CGFloat.random(in: 0...size.height, using: &g)
-                let r = CGFloat.random(in: 0.4...1.5, using: &g)
-                let a = Double.random(in: 0.02...0.09, using: &g)
+                let r = CGFloat.random(in: 0.4...1.4, using: &g)
+                let a = Double.random(in: 0.03...0.10, using: &g)
                 ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: r, height: r)),
-                         with: .color(.white.opacity(a)))
+                         with: .color(.black.opacity(a)))
             }
         }
         .allowsHitTesting(false)
@@ -30,28 +30,20 @@ struct VXSmoke: View {
 
     var body: some View {
         ZStack {
-            ForEach(0..<6, id: \.self) { i in
+            ForEach(0..<5, id: \.self) { i in
                 Ellipse()
-                    .fill(RadialGradient(colors: [VX.red.opacity(0.16), .clear],
-                                         center: .center, startRadius: 0, endRadius: 170))
-                    .frame(width: 340, height: 230)
-                    .blur(radius: 46)
-                    .rotationEffect(.degrees(Double(i) * 31))
-                    .offset(x: CGFloat(i - 3) * 78, y: t ? -50 : 50)
+                    .fill(RadialGradient(colors: [VX.red.opacity(0.13), .clear],
+                                         center: .center, startRadius: 0, endRadius: 150))
+                    .frame(width: 300, height: 200)
+                    .blur(radius: 40)
+                    .rotationEffect(.degrees(Double(i) * 37))
+                    .offset(x: CGFloat(i - 2) * 74, y: t ? -40 : 40)
             }
         }
         .allowsHitTesting(false)
         .onAppear {
-            withAnimation(.easeInOut(duration: 11).repeatForever(autoreverses: true)) { t = true }
+            withAnimation(.easeInOut(duration: 12).repeatForever(autoreverses: true)) { t = true }
         }
-    }
-}
-
-struct VXVignette: View {
-    var body: some View {
-        RadialGradient(colors: [.clear, .black.opacity(0.92)],
-                       center: .center, startRadius: 80, endRadius: 450)
-            .allowsHitTesting(false)
     }
 }
 
@@ -72,7 +64,7 @@ struct VXCrown: Shape {
 
 struct VXTorn: Shape {
     var teeth: Int = 22
-    var depth: CGFloat = 0.05
+    var depth: CGFloat = 0.045
 
     func path(in r: CGRect) -> Path {
         var p = Path()
@@ -94,17 +86,17 @@ struct VXTorn: Shape {
 
 struct VXMark: View {
     var size: CGFloat = 40
+    var onLight: Bool = true
 
     var body: some View {
         VStack(spacing: size * 0.03) {
             VXCrown()
-                .stroke(VX.paper, lineWidth: max(1.1, size * 0.045))
+                .stroke(onLight ? VX.ink : VX.paper, lineWidth: max(1.1, size * 0.045))
                 .frame(width: size * 0.52, height: size * 0.34)
             Text("VEEX")
                 .font(.system(size: size, weight: .black))
                 .italic()
-                .foregroundStyle(VX.paper)
-                .shadow(color: .black, radius: 0, x: size * 0.05, y: size * 0.05)
+                .foregroundStyle(onLight ? VX.ink : VX.paper)
             Rectangle()
                 .fill(VX.red)
                 .frame(width: size * 0.62, height: max(1.2, size * 0.035))
@@ -115,14 +107,14 @@ struct VXMark: View {
 extension View {
     func vxSlab(_ fill: Color = VX.slab) -> some View {
         background(VXTorn().fill(fill))
+            .overlay(VXTorn().stroke(VX.ink.opacity(0.12), lineWidth: 0.8))
     }
 
     func vxScreen() -> some View {
         ZStack {
-            VX.ink
+            VX.paper
             VXSmoke()
             VXNoise()
-            VXVignette()
         }
         .ignoresSafeArea()
     }
