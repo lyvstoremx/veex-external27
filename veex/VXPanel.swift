@@ -249,7 +249,7 @@ struct VXDoor: View {
                         .font(.system(size: 15, weight: .semibold, design: .monospaced))
                         .foregroundStyle(VX.ink)
                         .padding(.vertical, 13)
-                        .background(VX.paper)
+                        .background(VX.slab)
                         .overlay(Rectangle().stroke(bad ? VX.red : VX.ink.opacity(0.35), lineWidth: 1.2))
 
                     VStack(alignment: .leading, spacing: 3) {
@@ -314,11 +314,9 @@ struct VXDoor: View {
                     Button {
                         if !s.enter(key) {
                             bad = true
-                            s.play("off")
                             UINotificationFeedbackGenerator().notificationOccurred(.error)
                             withAnimation(.default) { bad = false }
                         } else {
-                            s.play("on")
                             UINotificationFeedbackGenerator().notificationOccurred(.success)
                         }
                     } label: {
@@ -341,7 +339,13 @@ struct VXDoor: View {
 
                 VXContact()
                     .padding(.horizontal, 26)
-                    .padding(.bottom, 28)
+
+                Text("BY LEVI")
+                    .font(.system(size: 7, weight: .black))
+                    .tracking(4)
+                    .foregroundStyle(VX.dim)
+                    .padding(.top, 12)
+                    .padding(.bottom, 24)
             }
         }
         .onAppear {
@@ -386,7 +390,7 @@ struct VXPanel: View {
                 VXMark(size: 17)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("EXTERNAL").font(.system(size: 9, weight: .black)).tracking(4).foregroundStyle(VX.ink)
-                    Text("VEEX").font(.system(size: 7, weight: .heavy)).tracking(3).foregroundStyle(VX.dim)
+                    Text("BY LEVI").font(.system(size: 7, weight: .heavy)).tracking(3).foregroundStyle(VX.red)
                 }
                 Spacer()
                 Button { s.mute.toggle(); UserDefaults.standard.set(s.mute, forKey: "vx.mute") } label: {
@@ -416,7 +420,7 @@ struct VXPanel: View {
                             .foregroundStyle(s.cat == c ? .white : VX.ink.opacity(0.55))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
-                            .background(s.cat == c ? VX.ink : VX.paper)
+                            .background(s.cat == c ? VX.ink : VX.slab)
                             .overlay(Rectangle().stroke(VX.ink.opacity(0.18), lineWidth: 0.8))
                     }
                 }
