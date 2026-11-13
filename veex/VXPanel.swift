@@ -82,22 +82,28 @@ struct VXDoor: View {
     @FocusState private var focus: Bool
 
     var body: some View {
-        ZStack {
-            metal
-            VStack(spacing: 0) {
-                Spacer()
-                Text("VEEX")
-                    .font(.system(size: 46, weight: .black))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 2)
-                Text("EXTERNAL")
-                    .font(.system(size: 12, weight: .bold))
-                    .tracking(8)
-                    .foregroundStyle(Color(red: 0.85, green: 0.1, blue: 0.12))
-                    .padding(.top, 6)
-                Spacer()
-                plate
-                Spacer()
+        GeometryReader { g in
+            ZStack {
+                metal
+                VStack(spacing: 0) {
+                    VStack(spacing: 6) {
+                        Text("VEEX")
+                            .font(.system(size: 34, weight: .black))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 2)
+                        Text("PRUEBA VISUAL")
+                            .font(.system(size: 9, weight: .heavy))
+                            .tracking(6)
+                            .foregroundStyle(Color(red: 0.85, green: 0.1, blue: 0.12))
+                    }
+                    .padding(.top, 26)
+
+                    VXPreview(s: s, header: false)
+                        .frame(height: g.size.height * 0.46)
+
+                    plate
+                    Spacer(minLength: 12)
+                }
             }
         }
         .onAppear { focus = true }
@@ -118,7 +124,7 @@ struct VXDoor: View {
     }
 
     private var plate: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             Text("CLAVE")
                 .font(.system(size: 10, weight: .heavy))
                 .tracking(4)
@@ -131,7 +137,7 @@ struct VXDoor: View {
                 .multilineTextAlignment(.center)
                 .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.white)
-                .padding(.vertical, 13)
+                .padding(.vertical, 12)
                 .background(Color.black.opacity(0.55))
                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(bad ? Color.red : Color(white: 0.3), lineWidth: 1))
                 .cornerRadius(7)
@@ -153,13 +159,13 @@ struct VXDoor: View {
                     .tracking(3)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 13)
                     .background(Color(red: 0.72, green: 0.07, blue: 0.09))
                     .cornerRadius(7)
                     .padding(.horizontal, 26)
             }
         }
-        .padding(.vertical, 26)
+        .padding(.vertical, 20)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 14)
