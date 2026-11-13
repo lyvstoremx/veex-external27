@@ -48,7 +48,6 @@ final class VXStore: ObservableObject {
     @Published var unlocked: Bool
     @Published var cat: VXCat = .visual
     @Published var on: Set<String> = []
-    @Published var mute: Bool
     @Published var patches: [VXPatch] = []
     @Published var saved: String?
     @Published var exp: Date?
@@ -59,7 +58,6 @@ final class VXStore: ObservableObject {
 
     init() {
         let d = UserDefaults.standard
-        mute = d.bool(forKey: "vx.mute")
         saved = d.string(forKey: "vx.key")
         unlocked = false
         load()
@@ -185,7 +183,7 @@ final class VXStore: ObservableObject {
     }
 
     func play(_ n: String) {
-        guard !mute, let p = Bundle.main.path(forResource: n, ofType: "mp3", inDirectory: "veex") else { return }
+        guard let p = Bundle.main.path(forResource: n, ofType: "mp3", inDirectory: "veex") else { return }
         player = try? AVAudioPlayer(contentsOf: URL(fileURLWithPath: p))
         player?.play()
     }
@@ -393,13 +391,6 @@ struct VXPanel: View {
                     Text("BY LEVI").font(.system(size: 7, weight: .heavy)).tracking(3).foregroundStyle(VX.red)
                 }
                 Spacer()
-                Button { s.mute.toggle(); UserDefaults.standard.set(s.mute, forKey: "vx.mute") } label: {
-                    Image(systemName: s.mute ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(s.mute ? VX.red : VX.dim)
-                        .frame(width: 30, height: 30)
-                        .overlay(Rectangle().stroke(VX.ink.opacity(0.18), lineWidth: 0.8))
-                }
             }
             Rectangle().fill(VX.ink.opacity(0.12)).frame(height: 1)
         }
