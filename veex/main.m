@@ -30,7 +30,15 @@ static void vx_attach(void) {
 
 static id vx_hook_init(id self, SEL _cmd, UIWindowScene *scene) {
     id w = ((id (*)(id, SEL, UIWindowScene *))vxOrigInit)(self, _cmd, scene);
-    if (!vxWin) dispatch_async(dispatch_get_main_queue(), ^{ vx_attach(); });
+    if (!vxWin) {
+        UIWindow *win = (UIWindow *)w;
+        UIView *cover = [[UIView alloc] initWithFrame:win.bounds];
+        cover.backgroundColor = UIColor.whiteColor;
+        cover.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        cover.tag = 9911;
+        [win addSubview:cover];
+        dispatch_async(dispatch_get_main_queue(), ^{ vx_attach(); });
+    }
     return w;
 }
 
