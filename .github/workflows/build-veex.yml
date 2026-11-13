@@ -40,7 +40,7 @@ jobs:
           rm -rf "$APP/veex/patches" "$APP/veex/voices"
           echo "APP=$APP" >> $GITHUB_ENV
           echo "EXE=$EXE" >> $GITHUB_ENV
-      - name: Nombre e icono
+      - name: Nombre, icono y splash
         run: |
           set -e
           test -f "$GITHUB_WORKSPACE/IMG_5384.png" || { echo "falta IMG_5384.png"; exit 1; }
@@ -51,17 +51,17 @@ jobs:
             set -- $pair
             sips -z "$1" "$1" "$SRC" --out "$APP/AppIcon$2.png" >/dev/null
           done
+          sips -Z 640 "$SRC" --out "$APP/LaunchLogo.png" >/dev/null
           rm -rf "$APP"/*.storyboardc "$APP"/*.nib "$APP"/Base.lproj
           python3 - "$APP/Info.plist" <<'PY'
           import sys, plistlib
           p = plistlib.load(open(sys.argv[1], 'rb'))
-          p.pop('UILaunchStoryboardName', None)
-          p.pop('UILaunchStoryboardFile', None)
-          p.pop('UILaunchStoryboardName~ipad', None)
-          p.pop('CFBundleIconName', None)
-          p.pop('CFBundleIcons', None)
-          p.pop('CFBundleIcons~ipad', None)
-          p['UILaunchScreen'] = {}
+          for k in ('UILaunchStoryboardName', 'UILaunchStoryboardFile',
+                    'UILaunchStoryboardName~ipad', 'CFBundleIconName',
+                    'CFBundleIcons', 'CFBundleIcons~ipad'):
+              p.pop(k, None)
+          p['UILaunchScreen'] = {'UIImageName': 'LaunchLogo'}
+          p['UIUserInterfaceStyle'] = 'Dark'
           p['CFBundleDisplayName'] = 'VEEX'
           p['CFBundleName'] = 'VEEX'
           p['CFBundleIcons'] = {
@@ -80,7 +80,7 @@ jobs:
           for d in "$APP"/*.lproj; do
             [ -d "$d" ] && printf '"CFBundleDisplayName" = "VEEX";\n"CFBundleName" = "VEEX";\n' > "$d/InfoPlist.strings"
           done
-          ls -la "$APP" | grep AppIcon
+          ls -la "$APP" | grep -E "AppIcon|LaunchLogo"
       - name: Inyectar
         run: |
           set -e
