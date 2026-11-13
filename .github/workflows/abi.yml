@@ -1,0 +1,48 @@
+name: abi
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  abi:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bajar IPA
+        run: |
+          set -e
+          curl -fL -o app.ipa "https://raw.githubusercontent.com/lyvstoremx/VEEX-EXTERNAL/main/3105ios27.ipa"
+          unzip -q app.ipa -d work
+          APP=$(ls -d work/Payload/*.app | head -1)
+          BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          echo "BIN=$BIN" >> $GITHUB_ENV
+      - name: Desensamblar
+        run: |
+          set -e
+          otool -tvV "$BIN" > dis.txt || true
+          wc -l dis.txt
+          : > abi.txt
+          for s in afc_client_connect_rsd file_service_connect_rsd tunnel_create_rppairing_multihost afc_client_free; do
+            echo "===== $s =====" >> abi.txt
+            for n in $(grep -n "_$s" dis.txt | cut -d: -f1 | head -4); do
+              a=$(( n > 20 ? n - 20 : 1 ))
+              b=$(( n + 8 ))
+              sed -n "${a},${b}p" dis.txt >> abi.txt
+              echo "-----" >> abi.txt
+            done
+          done
+          wc -l abi.txt
+      - name: Publicar
+        run: |
+          git config user.name veex-bot
+          git config user.email bot@veex.local
+          git add -f abi.txt
+          git commit -m abi || true
+          git push || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: abi
+          path: abi.txt
