@@ -39,7 +39,7 @@ static void vx_build(UIWindowScene *ws) {
     vxWin.rootViewController = VXMakePanel();
     [vxWin makeKeyAndVisible];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ vx_veil.hidden = YES; });
+                   dispatch_get_main_queue(), ^{ vxVeil.hidden = YES; });
 }
 
 static void vx_watch(int n) {
