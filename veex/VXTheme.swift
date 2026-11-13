@@ -2,8 +2,8 @@ import SwiftUI
 
 enum VX {
     static let ink = Color(white: 0.06)
-    static let paper = Color(white: 0.965)
-    static let slab = Color(white: 1.0)
+    static let paper = Color(white: 0.90)
+    static let slab = Color(white: 0.955)
     static let dim = Color(white: 0.42)
     static let red = Color(red: 0.78, green: 0.06, blue: 0.08)
     static let green = Color(red: 0.09, green: 0.62, blue: 0.31)
@@ -33,7 +33,7 @@ struct VXSmoke: View {
         ZStack {
             ForEach(0..<5, id: \.self) { i in
                 Ellipse()
-                    .fill(RadialGradient(colors: [VX.red.opacity(0.13), .clear],
+                    .fill(RadialGradient(colors: [VX.red.opacity(0.12), .clear],
                                          center: .center, startRadius: 0, endRadius: 150))
                     .frame(width: 300, height: 200)
                     .blur(radius: 40)
@@ -108,7 +108,7 @@ struct VXMark: View {
 extension View {
     func vxSlab(_ fill: Color = VX.slab) -> some View {
         background(VXTorn().fill(fill))
-            .overlay(VXTorn().stroke(VX.ink.opacity(0.12), lineWidth: 0.8))
+            .overlay(VXTorn().stroke(VX.ink.opacity(0.10), lineWidth: 0.8))
     }
 
     func vxScreen() -> some View {
