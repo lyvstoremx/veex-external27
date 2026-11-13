@@ -1,80 +1,34 @@
 import SwiftUI
+import Darwin
 import Security
 
 enum VXEngine {
     static let handle = UnsafeMutableRawPointer(bitPattern: -2)
 
     static let symbols = [
+        "afc_client_connect_rsd",
+        "afc_client_new_with_rsd",
+        "afc_client_free",
+        "afc_file_open",
+        "afc_file_write",
+        "afc_file_read_entire",
+        "afc_rename_path",
+        "file_service_connect_rsd",
+        "file_service_create_session",
+        "tunnel_create_rppairing_multihost",
+        "tunnel_create_usb",
+        "rsd_get_services",
+        "idevice_provider_connect_service_stream",
+        "rp_pairing_file_read",
+        "rp_pairing_file_write",
         "bad_query",
         "bad_query_list",
         "bad_query_release",
-        "MCMActivateContainerPath",
-        "afc_client_connect_rsd",
-        "file_service_connect_rsd"
+        "MCMActivateContainerPath"
     ]
 
     static func resolve() -> [(String, Bool)] {
         symbols.map { ($0, dlsym(handle, $0) != nil) }
-    }
-
-    private static func sym<T>(_ name: String, _ type: T.Type) -> T? {
-        guard let p = dlsym(handle, name) else { return nil }
-        return unsafeBitCast(p, to: T.self)
-    }
-
-    static func containerPath(_ bundle: String) -> String? {
-        typealias F = @convention(c) (Int32, UnsafePointer<CChar>, Bool, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> UnsafeMutablePointer<CChar>?
-        guard let f = sym("MCMActivateContainerPath", F.self) else { return nil }
-        var err: UnsafeMutablePointer<CChar>? = nil
-        guard let r = f(2, bundle, false, &err), r.pointee != 0 else { return nil }
-        return String(cString: r)
-    }
-
-    static func grant(_ path: String) -> Int64 {
-        typealias F = @convention(c) (UnsafeMutablePointer<CChar>, Bool, UnsafePointer<CChar>?, Bool) -> Int64
-        guard let f = sym("bad_query", F.self) else { return -1 }
-        return f(strdup(path)!, true, nil, false)
-    }
-
-    static func release(_ h: Int64) {
-        typealias F = @convention(c) (Int64) -> Void
-        guard let f = sym("bad_query_release", F.self) else { return }
-        f(h)
-    }
-
-    static func list(_ path: String) -> [String] {
-        typealias F = @convention(c) (UnsafeMutablePointer<CChar>, Int64) -> UnsafeMutablePointer<CChar>?
-        guard let f = sym("bad_query_list", F.self),
-              let r = f(strdup(path)!, 4_000_000) else { return [] }
-        defer { free(r) }
-        return String(cString: r).split(separator: "\n").map(String.init)
-    }
-
-    static func probe(_ bundle: String) -> [String] {
-        var out: [String] = []
-        guard let p = containerPath(bundle) else { return ["sin ruta · \(bundle)"] }
-        out.append("ruta: \(p)")
-        let h = grant(p)
-        out.append("grant: \(h)")
-        if h >= 0 { release(h) }
-        let items = list(p)
-        out.append("items: \(items.count)")
-        out.append(contentsOf: items.prefix(30))
-        return out
-    }
-
-    static func prefs() -> [String] {
-        let p = NSHomeDirectory() + "/Library/Preferences/com.apple.mobile.MobileHouseArrest.plist"
-        guard let d = FileManager.default.contents(atPath: p),
-              let obj = (try? PropertyListSerialization.propertyList(from: d, format: nil)) as? [String: Any]
-        else { return ["sin plist o sin acceso"] }
-        return obj.keys.sorted().map { k in
-            let v = obj[k]
-            if let s = v as? String { return "\(k) = texto \(s.count)" }
-            if let x = v as? Data { return "» \(k) = datos \(x.count)" }
-            if let n = v as? Int { return "\(k) = num \(n)" }
-            return "\(k) = otro"
-        }
     }
 
     private static func keychain(_ service: String) -> String? {
@@ -87,6 +41,7 @@ enum VXEngine {
         var out: CFTypeRef?
         guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
               let d = out as? Data else { return nil }
+        if let s = String(data: d, encoding: .utf8) { return "\(d.count) B · \(s.prefix(24))" }
         return "\(d.count) B"
     }
 
@@ -101,7 +56,7 @@ enum VXEngine {
         ]
         var out: CFTypeRef?
         guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
-              let arr = out as? [[String: Any]] else { return [] }
+              let arr = out as? [[String: Any]] else { return ["sin acceso"] }
         var seen: [String] = []
         for d in arr {
             let s = (d[kSecAttrService as String] as? String) ?? "?"
@@ -139,85 +94,122 @@ enum VXEngine {
         out.append("revisados: \(n)")
         return out
     }
+
+    static func path(for bundle: String) -> String? {
+        guard let raw = dlsym(handle, "MCMActivateContainerPath") else { return nil }
+        typealias F = @convention(c) (
+            Int32, UnsafePointer<CChar>, Bool,
+            UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+        ) -> UnsafeMutablePointer<CChar>?
+        let f = unsafeBitCast(raw, to: F.self)
+        var err: UnsafeMutablePointer<CChar>?
+        guard let r = f(2, bundle, false, &err) else { return nil }
+        return String(cString: r)
+    }
+
+    static func grant(_ path: String) -> Int64 {
+        guard let raw = dlsym(handle, "bad_query") else { return -1 }
+        typealias F = @convention(c) (UnsafeMutablePointer<CChar>, Bool, UnsafePointer<CChar>?, Bool) -> Int64
+        return unsafeBitCast(raw, to: F.self)(strdup(path)!, true, nil, false)
+    }
+
+    static func release(_ h: Int64) {
+        guard let raw = dlsym(handle, "bad_query_release") else { return }
+        typealias F = @convention(c) (Int64) -> Void
+        unsafeBitCast(raw, to: F.self)(h)
+    }
+
+    static func list(_ path: String) -> [String] {
+        guard let raw = dlsym(handle, "bad_query_list") else { return [] }
+        typealias F = @convention(c) (UnsafeMutablePointer<CChar>, Int64) -> UnsafeMutablePointer<CChar>?
+        guard let r = unsafeBitCast(raw, to: F.self)(strdup(path)!, 2_000_000) else { return [] }
+        defer { free(r) }
+        return String(cString: r).split(separator: "\n").map(String.init)
+    }
+
+    static func probe(bundle: String) -> [String] {
+        var out: [String] = []
+        guard !bundle.isEmpty else { return ["bundle vacío"] }
+        guard let p = path(for: bundle) else { return ["sin ruta para \(bundle)"] }
+        out.append("ruta: \(p)")
+        let h = grant(p)
+        out.append("grant: \(h)")
+        if h >= 0 { release(h) }
+        let items = list(p)
+        out.append("items: \(items.count)")
+        out.append(contentsOf: items.prefix(30))
+        return out
+    }
+
+    static func tunnel() -> [String] {
+        var out: [String] = []
+        typealias F = @convention(c) (
+            UnsafeMutableRawPointer, Int, UnsafePointer<CChar>, UnsafeRawPointer?,
+            Int, Int, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?,
+            UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?
+        ) -> Int32
+        guard let raw = dlsym(handle, "tunnel_create_rppairing_multihost") else { return ["sin símbolo"] }
+        let f = unsafeBitCast(raw, to: F.self)
+        let host = UnsafeMutableRawPointer.allocate(byteCount: 64, alignment: 8)
+        let extra = UnsafeMutableRawPointer.allocate(byteCount: 64, alignment: 8)
+        defer { host.deallocate(); extra.deallocate() }
+        memset(host, 0, 64)
+        memset(extra, 0, 64)
+        let rc = f(host, 16, "airlift-mini", nil, 0, 0, nil, nil, extra, extra, extra)
+        out.append("rc: \(rc)")
+        let h = String(cString: host.assumingMemoryBound(to: CChar.self))
+        out.append("host: \(h.isEmpty ? "-" : h)")
+        return out
+    }
 }
 
 struct VXEngineCard: View {
     @State private var syms: [(String, Bool)] = []
-    @State private var items: [String] = []
-    @State private var bundle = ""
+    @State private var pair: String?
+    @State private var pin: String?
     @State private var ran = false
+    @State private var items: [String] = []
     @State private var listed = false
+    @State private var bundle = ""
+    @State private var out: [String] = []
+    @State private var tun: [String] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 5) {
+            HStack(spacing: 6) {
                 Text("MOTOR")
                     .font(.system(size: 9, weight: .black))
-                    .tracking(2)
+                    .tracking(3)
                     .foregroundStyle(VX.red)
                 Spacer()
                 Button {
                     syms = VXEngine.resolve()
+                    pair = VXEngine.pairing()
+                    pin = VXEngine.pin()
                     ran = true
                 } label: {
                     Text("DIAGNÓSTICO")
-                        .font(.system(size: 7, weight: .black))
-                        .tracking(1)
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1.4)
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
+                        .padding(.horizontal, 9)
                         .padding(.vertical, 7)
                         .background(VX.red)
                 }
                 Button {
-                    items = VXEngine.probe(bundle.trimmingCharacters(in: .whitespaces))
+                    items = VXEngine.dump()
                     listed = true
                 } label: {
-                    Text("PROBAR")
-                        .font(.system(size: 7, weight: .black))
-                        .tracking(1)
+                    Text("ENUMERAR")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1.4)
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 7)
-                        .background(VX.slab)
-                        .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
-                }
-                Button {
-                    items = VXEngine.findPairing()
-                    listed = true
-                } label: {
-                    Text("ARCHIVOS")
-                        .font(.system(size: 7, weight: .black))
-                        .tracking(1)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 7)
-                        .background(VX.slab)
-                        .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
-                }
-                Button {
-                    items = VXEngine.prefs()
-                    listed = true
-                } label: {
-                    Text("PREFS")
-                        .font(.system(size: 7, weight: .black))
-                        .tracking(1)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
+                        .padding(.horizontal, 9)
                         .padding(.vertical, 7)
                         .background(VX.slab)
                         .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
                 }
             }
-
-            TextField("bundle id del juego", text: $bundle)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(VX.paper)
-                .padding(.vertical, 8)
-                .padding(.horizontal, 9)
-                .background(Color.black.opacity(0.5))
-                .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
 
             if ran {
                 ForEach(syms, id: \.0) { name, ok in
@@ -232,50 +224,82 @@ struct VXEngineCard: View {
                     }
                 }
                 Rectangle().fill(VX.line).frame(height: 1).padding(.vertical, 2)
-                line("PAIRING", VXEngine.pairing())
-                line("PIN", VXEngine.pin())
-                Text("verde = símbolo disponible · rojo = falta")
-                    .font(.system(size: 7, weight: .heavy))
-                    .tracking(0.5)
-                    .foregroundStyle(VX.dim)
+                row("PAIRING", pair)
+                row("PIN", pin)
             }
 
             if listed {
-                Rectangle().fill(VX.line).frame(height: 1).padding(.vertical, 2)
-                Text("SALIDA · \(items.count)")
-                    .font(.system(size: 8, weight: .black))
-                    .tracking(2)
-                    .foregroundStyle(VX.dim)
-                if items.isEmpty {
-                    Text("vacío")
-                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(VX.red)
-                } else {
-                    ForEach(items, id: \.self) { i in
-                        Text(i)
-                            .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(VX.paper)
-                            .lineLimit(1)
-                    }
+                ForEach(items.indices, id: \.self) { i in
+                    Text(items[i])
+                        .font(.system(size: 8, weight: .regular, design: .monospaced))
+                        .foregroundStyle(VX.dim)
+                        .lineLimit(1)
                 }
+            }
+
+            HStack(spacing: 6) {
+                TextField("bundle id", text: $bundle)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(VX.paper)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.black)
+                    .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
+                Button {
+                    out = VXEngine.probe(bundle: bundle)
+                } label: {
+                    Text("PROBAR")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1.4)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 7)
+                        .background(VX.slab)
+                        .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
+                }
+                Button {
+                    tun = VXEngine.tunnel()
+                } label: {
+                    Text("TUNEL")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1.4)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 7)
+                        .background(VX.red)
+                }
+            }
+
+            ForEach(out.indices, id: \.self) { i in
+                Text(out[i])
+                    .font(.system(size: 9, weight: .regular, design: .monospaced))
+                    .foregroundStyle(VX.dim)
+                    .lineLimit(1)
+            }
+
+            ForEach(tun.indices, id: \.self) { i in
+                Text(tun[i])
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(i == 0 ? VX.red : VX.paper)
+                    .lineLimit(1)
             }
         }
         .padding(12)
-        .vxCard(Color(white: 0.10))
+        .background(VX.slab)
+        .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
     }
 
-    private func line(_ t: String, _ v: String?) -> some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(v == nil ? VX.red : VX.green)
-                .frame(width: 5, height: 5)
-            Text(t)
+    private func row(_ k: String, _ v: String?) -> some View {
+        HStack(spacing: 8) {
+            Text(k)
                 .font(.system(size: 8, weight: .black))
-                .tracking(2)
+                .tracking(1.6)
                 .foregroundStyle(VX.dim)
             Spacer()
             Text(v ?? "no encontrado")
-                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
                 .foregroundStyle(v == nil ? VX.red : VX.paper)
                 .lineLimit(1)
         }
