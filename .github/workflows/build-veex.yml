@@ -1,6 +1,9 @@
 name: build-veex
 on: workflow_dispatch
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
@@ -66,7 +69,6 @@ jobs:
           logo = logo.resize((tw, th), Image.LANCZOS)
           bg.paste(logo, ((W - tw) // 2, (H - th) // 2))
           bg.save(sys.argv[2], "PNG")
-          print("splash", bg.size)
           PY
 
           rm -rf "$APP"/*.storyboardc "$APP"/*.nib "$APP"/Base.lproj
@@ -107,6 +109,21 @@ jobs:
               print(k, '=', p.get(k, '(ausente)'))
           PY
           ls -la "$APP" | grep -iE "launch|storyboard"
+      - name: Cuadros
+        run: |
+          set -e
+          VID=$(ls "$GITHUB_WORKSPACE"/*.mp4 | head -1)
+          mkdir -p "$GITHUB_WORKSPACE/frames"
+          ffmpeg -y -i "$VID" -vf "fps=4,scale=400:-1" "$GITHUB_WORKSPACE/frames/f%03d.png" >/dev/null 2>&1
+          ls "$GITHUB_WORKSPACE/frames" | wc -l
+      - name: Publicar cuadros
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git config user.name vx
+          git config user.email vx@local
+          git add frames
+          git commit -m "cuadros" || true
+          git push || true
       - name: Inyectar
         run: |
           set -e
