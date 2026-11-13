@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 import AVFoundation
 
-let VXMaster = ["VEEX-LEVI-2004", "VEEX-LEVI-FF26"]
+let VXAdmin = "VEEX-LEVI-2004"
 
 enum VXCat: String, CaseIterable, Identifiable {
     case personaje = "Personaje"
@@ -53,17 +53,10 @@ final class VXStore: ObservableObject {
 
     func validate(_ key: String) -> Bool {
         let k = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        var valid = VXMaster.contains(k)
-        if !valid, let p = Bundle.main.path(forResource: "keys", ofType: "json", inDirectory: "veex"),
-           let data = FileManager.default.contents(atPath: p),
-           let list = try? JSONDecoder().decode([String].self, from: data) {
-            valid = list.map { $0.uppercased() }.contains(k)
-        }
-        if valid {
-            UserDefaults.standard.set(true, forKey: "vx.unlocked")
-            unlocked = true
-        }
-        return valid
+        guard k == VXAdmin else { return false }
+        UserDefaults.standard.set(true, forKey: "vx.unlocked")
+        unlocked = true
+        return true
     }
 
     func lock() {
