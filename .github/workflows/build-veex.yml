@@ -39,15 +39,25 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/patches" "$GITHUB_WORKSPACE/voices"
           cp -R $RUNNER_TEMP/old/patches/. "$GITHUB_WORKSPACE/patches/" || true
           cp -R $RUNNER_TEMP/old/voices/. "$GITHUB_WORKSPACE/voices/" || true
+          cp $RUNNER_TEMP/old/keys.json "$GITHUB_WORKSPACE/keys.json" || true
+          ls patches | head -20
 
       - name: IPA
         run: |
           set -e
           cd "$GITHUB_WORKSPACE"
-          if [ ! -f 3105ios27.ipa ]; then
-            curl -fL -o 3105ios27.ipa "${{ secrets.IPA_URL }}"
+          SRC=$(ls *.ipa 2>/dev/null | head -1 || true)
+          if [ -z "$SRC" ]; then SRC=$(ls $RUNNER_TEMP/old/*.ipa 2>/dev/null | head -1 || true); fi
+          if [ -z "$SRC" ] && [ -n "${{ secrets.IPA_URL }}" ]; then
+            curl -fL --retry 3 -o app.ipa "${{ secrets.IPA_URL }}"
+          elif [ -n "$SRC" ]; then
+            echo "usando $SRC"
+            cp "$SRC" app.ipa
+          else
+            echo "ERROR: no se encontro ninguna .ipa"; exit 1
           fi
-          unzip -q 3105ios27.ipa -d work
+          ls -lh app.ipa
+          unzip -q app.ipa -d work
           ls -la work/Payload
 
       - name: Compilar dylib
@@ -60,11 +70,11 @@ jobs:
             -miphoneos-version-min=16.0 \
             -emit-library -module-name Veex \
             -o out/libveex.dylib \
-            -import-objc-header VXBridge.h \
-            main.m VXPanel.swift VXPreview.swift VXTheme.swift \
-            -framework UIKit -framework Foundation -framework SwiftUI -framework QuartzCore
+            veex/main.m veex/VXPanel.swift veex/VXPreview.swift veex/VXTheme.swift \
+            -framework UIKit -framework Foundation -framework SwiftUI \
+            -framework QuartzCore -framework AVFoundation
           lipo -info out/libveex.dylib
-          otool -L out/libveex.dylib
+          otool -L out/libveex.dylib | head -12
 
       - name: Inyectar
         run: |
@@ -74,10 +84,33 @@ jobs:
           BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
           mkdir -p "$APP/Frameworks"
           cp out/libveex.dylib "$APP/Frameworks/libveex.dylib"
-          python3 tools/inject.py "$BIN" "$APP/Frameworks/libveex.dylib"
+          python3 - "$BIN" <<'PY'
+          import sys, lief
+          p = sys.argv[1]
+          b = lief.MachO.parse(p)
+          b = b.at(0)
+          name = "@executable_path/Frameworks/libveex.dylib"
+          try:
+              cmd = lief.MachO.DylibCommand.dylib(name)
+          except Exception:
+              cmd = lief.MachO.DylibCommand.create(name)
+          b.add(cmd)
+          b.write(p)
+          print("LC_LOAD_DYLIB agregado")
+          PY
           otool -L "$BIN" | grep -q libveex.dylib || { echo "FALLO LA INYECCION"; exit 1; }
-          install_name_tool -add_rpath @executable_path/Frameworks "$BIN" 2>/dev/null || true
           echo "inyectado en $BIN"
+
+      - name: Contenido
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          APP=$(ls -d work/Payload/*.app | head -1)
+          mkdir -p "$APP/veex"
+          cp patches/*.3105 "$APP/veex/" 2>/dev/null || true
+          cp voices/*.mp3 "$APP/veex/" 2>/dev/null || true
+          cp keys.json "$APP/veex/keys.json" 2>/dev/null || true
+          ls "$APP/veex" | wc -l
 
       - name: Nombre y splash
         run: |
@@ -87,7 +120,6 @@ jobs:
           PL="$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$PL"
           /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleName string $APP_NAME" "$PL"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$PL" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName" "$PL" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Delete :UILaunchScreen" "$PL" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :UILaunchScreen dict" "$PL"
@@ -99,6 +131,9 @@ jobs:
           for s in LaunchLogo.png LaunchLogo@2x.png LaunchLogo@3x.png; do
             [ -f "$s" ] && cp "$s" "$APP/$s"
           done
+          if [ ! -f "$APP/LaunchLogo.png" ] && [ -f IMG_5384.png ]; then
+            sips -z 1024 1024 IMG_5384.png --out "$APP/LaunchLogo.png" >/dev/null 2>&1
+          fi
           echo "plist listo"
 
       - name: Icono
@@ -153,7 +188,6 @@ jobs:
           else
             echo "actool fallo, respaldo por PNG suelto"
             cat $RUNNER_TEMP/actool.log || true
-            for s in 120 180; do sips -z $s $s "$SRC" --out "$APP/AppIcon60x60@$([ $s = 120 ] && echo 2x || echo 3x).png" >/dev/null 2>&1 || true; done
           fi
 
       - name: Firmar
@@ -163,12 +197,12 @@ jobs:
           APP=$(ls -d work/Payload/*.app | head -1)
           find "$APP" -name "*.dylib" -exec codesign --force --sign - --timestamp=none {} \;
           codesign --force --sign - --timestamp=none "$APP"
-          codesign -dv "$APP" 2>&1 | head -5
+          codesign -dv "$APP" 2>&1 | head -4
 
       - name: Ver plist
         run: |
           APP=$(ls -d work/Payload/*.app | head -1)
-          /usr/libexec/PlistBuddy -c "Print" "$APP/Info.plist" | head -60
+          /usr/libexec/PlistBuddy -c "Print" "$APP/Info.plist" | head -40
 
       - name: Cuadros
         run: |
