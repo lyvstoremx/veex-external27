@@ -53,8 +53,7 @@ final class VXStore: ObservableObject {
     @Published var saved: String?
     @Published var exp: Date?
     @Published var fail: String?
-    @Published var busy = false
-    @Published var done = false
+    @Published var busy: String?
     @Published var now = Date()
 
     private var player: AVAudioPlayer?
@@ -204,45 +203,37 @@ final class VXStore: ObservableObject {
     }
 
     func toggle(_ p: VXPatch) {
-        guard !busy else { return }
-        if on.contains(p.id) { on.remove(p.id) } else { on.insert(p.id) }
-        play(on.contains(p.id) ? "on" : "off")
-    }
-
-    func apply() {
-        guard !busy else { return }
-        busy = true
+        guard busy == nil else { return }
         fail = nil
-        done = false
+        let turningOn = !on.contains(p.id)
+        if turningOn { on.insert(p.id) } else { on.remove(p.id) }
+        play(turningOn ? "on" : "off")
+        busy = p.id
+
         let list = patches
-        let wanted = on
 
         DispatchQueue.global(qos: .userInitiated).async {
-            var errors: [String] = []
+            var error: String?
 
-            for p in list where !wanted.contains(p.id) && VXApply.isOn(p.file) {
-                do { try VXApply.restore(p.file) } catch { errors.append(p.name) }
-            }
-
-            for p in list where wanted.contains(p.id) && !VXApply.isOn(p.file) {
+            if turningOn {
                 if p.cat == .aimbot {
                     for other in list where other.cat == .aimbot && other.id != p.id && VXApply.isOn(other.file) {
                         try? VXApply.restore(other.file)
                     }
                 }
-                do { try VXApply.apply(p.file) } catch { errors.append(p.name) }
+                do { try VXApply.apply(p.file) } catch { error = String(describing: error) }
+            } else {
+                do { try VXApply.restore(p.file) } catch { error = String(describing: error) }
             }
 
             DispatchQueue.main.async {
-                self.busy = false
-                self.syncState()
-                if errors.isEmpty {
-                    self.done = true
-                    self.play("on")
-                } else {
-                    self.fail = "falló: " + errors.joined(separator: " · ")
+                self.busy = nil
+                if let error {
+                    if turningOn { self.on.remove(p.id) } else { self.on.insert(p.id) }
+                    self.fail = "\(p.name): \(error)"
                     self.play("off")
                 }
+                self.syncState()
             }
         }
     }
@@ -449,51 +440,6 @@ struct VXPanel: View {
                 }
                 footer
             }
-
-            if s.busy {
-                Color.black.opacity(0.84).ignoresSafeArea()
-                VStack(spacing: 14) {
-                    ProgressView().tint(.white).scaleEffect(1.3)
-                    Text("APLICANDO")
-                        .font(.system(size: 13, weight: .black)).tracking(6)
-                        .foregroundStyle(VX.paper)
-                    Text("puede tardar")
-                        .font(.system(size: 9, weight: .heavy)).tracking(1)
-                        .foregroundStyle(VX.dim)
-                }
-            }
-
-            if s.done {
-                Color.black.opacity(0.88).ignoresSafeArea()
-                VStack(spacing: 16) {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 30, weight: .black))
-                        .foregroundStyle(VX.green)
-                    Text("LISTO")
-                        .font(.system(size: 13, weight: .black)).tracking(6)
-                        .foregroundStyle(VX.paper)
-                    Button {
-                        s.done = false
-                        s.openGame()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "gamecontroller.fill").font(.system(size: 11, weight: .bold))
-                            Text("ABRIR FREE FIRE").font(.system(size: 11, weight: .black)).tracking(2)
-                        }
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 22)
-                        .padding(.vertical, 14)
-                        .background(VX.green)
-                    }
-                    Button {
-                        s.done = false
-                    } label: {
-                        Text("SEGUIR AQUÍ")
-                            .font(.system(size: 9, weight: .black)).tracking(2)
-                            .foregroundStyle(VX.dim)
-                    }
-                }
-            }
         }
     }
 
@@ -546,6 +492,7 @@ struct VXPanel: View {
 
     private func row(_ p: VXPatch) -> some View {
         let active = s.on.contains(p.id)
+        let working = s.busy == p.id
         return HStack(spacing: 12) {
             Rectangle().fill(active ? VX.green : VX.line).frame(width: 2, height: 28)
             VStack(alignment: .leading, spacing: 3) {
@@ -561,15 +508,20 @@ struct VXPanel: View {
                 }
             }
             Spacer()
-            Button {
-                s.toggle(p)
-            } label: {
-                Text(active ? "ON" : "OFF")
-                    .font(.system(size: 9, weight: .black))
-                    .tracking(2)
-                    .foregroundStyle(active ? .black : .white)
-                    .frame(width: 56, height: 30)
-                    .background(active ? VX.green : VX.red)
+            if working {
+                ProgressView().tint(.white).scaleEffect(0.8).frame(width: 56, height: 30)
+            } else {
+                Button {
+                    s.toggle(p)
+                } label: {
+                    Text(active ? "ON" : "OFF")
+                        .font(.system(size: 9, weight: .black))
+                        .tracking(2)
+                        .foregroundStyle(active ? .black : .white)
+                        .frame(width: 56, height: 30)
+                        .background(active ? VX.green : VX.red)
+                }
+                .disabled(s.busy != nil)
             }
         }
         .padding(.horizontal, 12)
@@ -589,20 +541,7 @@ struct VXPanel: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Button { s.apply() } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "bolt.fill").font(.system(size: 10, weight: .bold))
-                    Text("APLICAR").font(.system(size: 11, weight: .black)).tracking(3)
-                }
-                .foregroundStyle(.black)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(VX.green)
-                .opacity(s.busy ? 0.5 : 1)
-            }
-            .disabled(s.busy)
-
-            HStack {
+            HStack(spacing: 8) {
                 Text("\(s.on.count) ACTIVOS")
                     .font(.system(size: 8, weight: .black)).tracking(2)
                     .foregroundStyle(VX.green)
@@ -613,6 +552,23 @@ struct VXPanel: View {
                         .foregroundStyle(VX.red)
                 }
             }
+
+            Button { s.openGame() } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "gamecontroller.fill").font(.system(size: 11, weight: .bold))
+                    Text("ABRIR FREE FIRE").font(.system(size: 11, weight: .black)).tracking(2)
+                }
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(VX.green)
+            }
+
+            Text("cierra Free Fire antes de prender o apagar")
+                .font(.system(size: 7, weight: .heavy))
+                .tracking(0.5)
+                .foregroundStyle(VX.dim)
+
             VXContact()
         }
         .padding(.horizontal, 16)
