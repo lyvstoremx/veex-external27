@@ -27,7 +27,7 @@ enum VXEngine {
     ]
 
     static func resolve() -> [(String, Bool)] {
-        var out: [(String, Bool)] = [("symtab", VXSym.count() > 0)]
+        var out: [(String, Bool)] = [("containermanager", VXMCM.available)]
         out.append(contentsOf: symbols.map { ($0, VXSym.find($0) != nil) })
         return out
     }
@@ -96,29 +96,9 @@ enum VXEngine {
         return out
     }
 
-    static func path(for bundle: String) -> String? {
-        typealias F = @convention(c) (
-            UInt64, UnsafeMutableRawPointer, Bool, UnsafeMutablePointer<UnsafeMutableRawPointer?>?
-        ) -> UnsafeMutableRawPointer?
-        guard let raw = VXSym.find("MCMActivateContainerPath") else { return nil }
-        let f = unsafeBitCast(raw, to: F.self)
-        let ns = bundle as NSString
-        var err: UnsafeMutableRawPointer?
-        guard let r = f(2, Unmanaged.passUnretained(ns).toOpaque(), false, &err) else { return nil }
-        return Unmanaged<NSString>.fromOpaque(r).takeUnretainedValue() as String
-    }
-
-    static func grant(_ path: String) -> Int64 {
-        typealias F = @convention(c) (UnsafeMutablePointer<CChar>, Bool, UnsafePointer<CChar>?, Bool) -> Int64
-        guard let raw = VXSym.find("bad_query") else { return -1 }
-        return unsafeBitCast(raw, to: F.self)(strdup(path)!, true, nil, false)
-    }
-
-    static func release(_ h: Int64) {
-        typealias F = @convention(c) (Int64) -> Void
-        guard let raw = VXSym.find("bad_query_release") else { return }
-        unsafeBitCast(raw, to: F.self)(h)
-    }
+    static func path(for bundle: String) -> String? { VXMCM.path(bundle) }
+    static func grant(_ path: String) -> Int64 { VXMCM.grant(path) }
+    static func release(_ h: Int64) { VXMCM.release(h) }
 
     static func list(_ path: String) -> [String] {
         typealias F = @convention(c) (UnsafeMutablePointer<CChar>, Int64) -> UnsafeMutablePointer<CChar>?
