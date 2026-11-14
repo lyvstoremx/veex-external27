@@ -113,6 +113,7 @@ enum VXEngine {
         guard !bundle.isEmpty else { return ["bundle vacío"] }
         guard let p = path(for: bundle) else { return ["sin ruta para \(bundle)"] }
         out.append("ruta: \(p)")
+        out.append("escritura: " + VXContainers.writeTest(p))
         let h = grant(p)
         out.append("grant: \(h)")
         if h >= 0 { release(h) }
