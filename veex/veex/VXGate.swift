@@ -1,6 +1,6 @@
 //
 //  VXGate.swift
-//  Anula ExploitSupportPolicy.isSupported en el binario host.
+//  Anula ExploitSupportPolicy.isSupported y localiza símbolos en todo el proceso.
 //
 
 import Darwin
@@ -14,12 +14,11 @@ enum VXGate {
         return unsafeBitCast(p, to: Icache.self)
     }()
 
-    static func locate(_ needles: [String]) -> [(String, UnsafeMutableRawPointer)] {
-        guard let hdr = _dyld_get_image_header(0) else { return [] }
-        let slide = _dyld_get_image_vmaddr_slide(0)
+    private static func scan(_ hdr: UnsafePointer<mach_header>, _ slide: Int,
+                             _ needles: [String], _ out: inout [(String, UnsafeMutableRawPointer)]) {
+        guard hdr.pointee.magic == MH_MAGIC_64 else { return }
         let base = UnsafeRawPointer(hdr)
         var cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
-        var out: [(String, UnsafeMutableRawPointer)] = []
 
         for _ in 0..<Int(hdr.pointee.ncmds) {
             let cmd = cursor.assumingMemoryBound(to: load_command.self)
@@ -38,11 +37,30 @@ enum VXGate {
                     let addr = s.n_value &+ UInt64(bitPattern: Int64(slide))
                     if let p = UnsafeMutableRawPointer(bitPattern: UInt(addr)) { out.append((name, p)) }
                 }
-                return out
+                return
             }
-            guard cmd.pointee.cmdsize > 0 else { return out }
+            guard cmd.pointee.cmdsize > 0 else { return }
             cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
         }
+    }
+
+    static func locate(_ needles: [String]) -> [(String, UnsafeMutableRawPointer)] {
+        var out: [(String, UnsafeMutableRawPointer)] = []
+
+        for n in needles {
+            for cand in [n, "_" + n] {
+                if let p = dlsym(UnsafeMutableRawPointer(bitPattern: -2), cand) {
+                    out.append((cand, p))
+                }
+            }
+        }
+
+        for i in 0..<_dyld_image_count() {
+            guard let hdr = _dyld_get_image_header(i) else { continue }
+            let slide = _dyld_get_image_vmaddr_slide(i)
+            scan(hdr, slide, needles, &out)
+        }
+
         return out
     }
 
@@ -55,8 +73,8 @@ enum VXGate {
             return false
         }
         let w = p.assumingMemoryBound(to: UInt32.self)
-        w[0] = 0x52800020   // mov w0, #1
-        w[1] = 0xD65F03C0   // ret
+        w[0] = 0x52800020
+        w[1] = 0xD65F03C0
         icache?(UnsafeRawPointer(p), 8)
         return true
     }
