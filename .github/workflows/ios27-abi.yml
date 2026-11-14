@@ -1,0 +1,31 @@
+name: ios27-abi
+on: workflow_dispatch
+jobs:
+  abi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get -y install llvm unzip binutils >/dev/null
+      - name: Desplegar
+        run: |
+          set -e
+          W="$GITHUB_WORKSPACE/work"
+          mkdir -p "$W" && cd "$W"
+          unzip -o "$GITHUB_WORKSPACE/3105ios27.ipa" >/dev/null
+          APP=$(find "$W/Payload" -maxdepth 1 -name '*.app' | head -1)
+          BIN="$APP/$(python3 -c "import plistlib,sys;print(plistlib.load(open(sys.argv[1],'rb'))['CFBundleExecutable'])" "$APP/Info.plist")"
+          echo "APP=$APP" >> $GITHUB_ENV
+          echo "BIN=$BIN" >> $GITHUB_ENV
+          ls -lh "$BIN"
+      - name: Frameworks
+        run: ls -R "$APP" | head -80
+      - name: Cadenas
+        run: strings -a "$BIN" | grep -iE 'worse|bad_query|airlift|mcm_' | sort -u | head -80
+      - name: Simbolos todos
+        run: llvm-nm -a "$BIN" 2>/dev/null | grep -iE 'worse|query|sandbox' | head -80
+      - name: Simbolos
+        run: llvm-nm --defined-only "$BIN" | grep -iE 'worse|supportpolicy|isSupported|sandbox_extension' | head -80
+      - name: Llamadores
+        run: |
+          llvm-objdump -d --macho "$BIN" > dis.txt || true
+          grep -n -B 26 'worse_query' dis.txt | head -260
