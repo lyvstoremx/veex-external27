@@ -1,8 +1,8 @@
 //
 //  VXShim.swift
 //  Contenedores y claves.
-//  Los contenedores se piden a libsystem_containermanager directamente:
-//  no dependemos de símbolos de la app.
+//  El permiso se resuelve por intentos y se verifica escribiendo:
+//  así funciona igual en 17, 18, 26 y 27 sin ramas por versión.
 //
 
 import Foundation
@@ -80,7 +80,9 @@ enum VXMCM {
     private typealias SetDomain = @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void
     private typealias GetPtr = @convention(c) (UnsafeMutableRawPointer) -> UnsafeMutableRawPointer?
     private typealias GetStr = @convention(c) (UnsafeMutableRawPointer) -> UnsafePointer<CChar>?
+    private typealias GetInt = @convention(c) (UnsafeMutableRawPointer) -> Int32
     private typealias CopyToken = @convention(c) (UnsafeMutableRawPointer) -> UnsafeMutablePointer<CChar>?
+    private typealias Activate = @convention(c) (UnsafeMutableRawPointer, Bool) -> Bool
     private typealias FreeFn = @convention(c) (UnsafeMutableRawPointer) -> Void
     private typealias XpcStr = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
     private typealias Consume = @convention(c) (UnsafePointer<CChar>) -> Int64
@@ -90,6 +92,8 @@ enum VXMCM {
         "/usr/lib/system/libsystem_containermanager.dylib",
         RTLD_NOW | RTLD_LOCAL
     )
+
+    private static var keep: [UnsafeMutableRawPointer] = []
 
     private static func sym<T>(_ name: String) -> T? {
         guard let lib, let p = dlsym(lib, name) else { return nil }
@@ -104,6 +108,21 @@ enum VXMCM {
     static var available: Bool {
         let f: Create? = sym("container_query_create")
         return lib != nil && f != nil
+    }
+
+    private static func detail(_ q: UnsafeMutableRawPointer) -> String {
+        guard let getErr: GetPtr = sym("container_query_get_last_error") else { return "sin detalle" }
+        guard let err = getErr(q) else { return "sin error" }
+        let posix: Int32 = {
+            guard let f: GetInt = sym("container_error_get_posix_errno") else { return 0 }
+            return f(err)
+        }()
+        let msg: String = {
+            guard let f: GetStr = sym("container_error_get_message"),
+                  let raw = f(err) else { return "?" }
+            return String(cString: raw)
+        }()
+        return "posix \(posix) · \(msg)"
     }
 
     private static func build(
@@ -148,35 +167,100 @@ enum VXMCM {
         return p
     }
 
-    static func grant(_ path: String) -> Int64 {
-        let domain = String(repeating: "..", count: 9) + path
-        guard let q = build(
-                cls: 13,
-                identifier: "systemgroup.com.apple.mobilegestaltcache",
-                group: true,
-                flags: 0x8000000000,
-                part: 3,
-                domain: domain
-              ),
-              let getSingle: GetPtr = sym("container_query_get_single_result"),
-              let copyToken: CopyToken = sym("container_copy_sandbox_token"),
-              let freeQ: FreeFn = sym("container_query_free"),
-              let consume: Consume = def("sandbox_extension_consume") else { return -1 }
-        defer { freeQ(q) }
+    /// Un intento: consulta, y del resultado saca token para consumir o activa el objeto.
+    private static func attempt(
+        label: String,
+        cls: UInt64,
+        identifier: String,
+        group: Bool,
+        flags: UInt64,
+        part: UInt64,
+        domain: String?
+    ) -> Int64 {
+        guard let q = build(cls: cls, identifier: identifier, group: group, flags: flags, part: part, domain: domain),
+              let getSingle: GetPtr = sym("container_query_get_single_result") else {
+            log("vx: \(label) sin consulta")
+            return -1
+        }
+        guard let obj = getSingle(q) else {
+            log("vx: \(label) daemon sin resultado · \(detail(q))")
+            return -1
+        }
 
-        guard let obj = getSingle(q), let token = copyToken(obj) else { return -1 }
-        defer { free(token) }
-        return consume(token)
+        if let copyToken: CopyToken = sym("container_copy_sandbox_token"),
+           let consume: Consume = def("sandbox_extension_consume"),
+           let token = copyToken(obj) {
+            let h = consume(token)
+            free(token)
+            log("vx: \(label) consume = \(h)")
+            if h >= 0 {
+                keep.append(q)
+                return h
+            }
+        } else {
+            log("vx: \(label) sin token o sin consume")
+        }
+
+        if let copy: GetPtr = sym("container_object_copy"),
+           let activate: Activate = sym("container_object_sandbox_extension_activate"),
+           let copyObj = copy(obj) {
+            let ok = activate(copyObj, false)
+            log("vx: \(label) activate = \(ok)")
+            if ok {
+                keep.append(copyObj)
+                keep.append(q)
+                return 1
+            }
+        } else {
+            log("vx: \(label) sin activate")
+        }
+
+        return -1
+    }
+
+    static func grant(_ path: String, bundle: String) -> Int64 {
+        let domain = String(repeating: "..", count: 9) + path
+        let gestalt = "systemgroup.com.apple.mobilegestaltcache"
+
+        let tries: [(String, UInt64, String, Bool, UInt64, UInt64, String?)] = [
+            ("gestalt-consume", 13, gestalt, true, 0x8000000000, 3, domain),
+            ("gestalt-activate", 13, gestalt, true, 0x900000000, 3, domain),
+            ("bundle-activate", 2, bundle, false, 0x900000000, 0, nil),
+            ("bundle-consume", 2, bundle, false, 0x100000000, 0, nil)
+        ]
+
+        for t in tries {
+            let h = attempt(
+                label: t.0,
+                cls: t.1,
+                identifier: t.2,
+                group: t.3,
+                flags: t.4,
+                part: t.5,
+                domain: t.6
+            )
+            if h >= 0 { return h }
+        }
+        return -1
     }
 
     static func release(_ handle: Int64) {
-        guard handle >= 0, let f: Release = def("sandbox_extension_release") else { return }
+        guard handle > 1, let f: Release = def("sandbox_extension_release") else { return }
         _ = f(handle)
     }
 }
 
 enum VXContainers {
     private static var roots: [String: URL] = [:]
+
+    static func writeTest(_ path: String) -> String {
+        let file = path + "/.veex-probe"
+        if FileManager.default.createFile(atPath: file, contents: Data("x".utf8)) {
+            try? FileManager.default.removeItem(atPath: file)
+            return "ok"
+        }
+        return "errno \(errno)"
+    }
 
     static func resolve(_ bundle: String) throws -> URL {
         if let cached = roots[bundle] { return cached }
@@ -189,21 +273,22 @@ enum VXContainers {
             log("vx: sin ruta para \(bundle)")
             throw PatchPackageError.targetAppUnavailable(bundle)
         }
-        let handle = VXMCM.grant(path)
-        log("vx: \(bundle) → \(path) · grant \(handle)")
 
         let url = PatchPathValidator.canonicalFileURL(URL(fileURLWithPath: path, isDirectory: true))
         roots[bundle] = url
-        return url
-    }
 
-    static func writeTest(_ path: String) -> String {
-        let file = path + "/.veex-probe"
-        if FileManager.default.createFile(atPath: file, contents: Data("x".utf8)) {
-            try? FileManager.default.removeItem(atPath: file)
-            return "ok"
+        if writeTest(path) == "ok" {
+            log("vx: \(bundle) escribible sin extensión")
+            return url
         }
-        return "errno \(errno)"
+
+        let handle = VXMCM.grant(path, bundle: bundle)
+        let check = writeTest(path)
+        log("vx: \(bundle) → \(path) · grant \(handle) · escritura \(check)")
+        if check != "ok" {
+            log("vx: sin permiso de escritura en \(bundle)")
+        }
+        return url
     }
 }
 
