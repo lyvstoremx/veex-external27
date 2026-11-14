@@ -342,7 +342,7 @@ enum VXContainers {
             log("vx: containermanager no disponible")
             throw PatchPackageError.targetAppUnavailable(bundle)
         }
-        guard let path = VXMCM.path(bundle) else {
+        guard let path = VXMCM.path(bundle) ?? VXWorse.path(bundle) else {
             log("vx: sin ruta para \(bundle)")
             throw PatchPackageError.targetAppUnavailable(bundle)
         }
@@ -355,9 +355,18 @@ enum VXContainers {
             return url
         }
 
-        let handle = VXMCM.grant(path, bundle: bundle)
-        let check = writeTest(path)
+        var handle = VXMCM.grant(path, bundle: bundle)
+        var check = writeTest(path)
         log("vx: \(bundle) → \(path) · grant \(handle) · escritura \(check)")
+
+        if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27, handle < 0 || check != "ok" {
+            log("vx: MCM sin escritura, pruebo worse_query")
+            if handle > 1 { VXMCM.release(handle) }
+            let w = VXWorse.grant(path)
+            check = writeTest(path)
+            log("vx: worse grant \(w) · escritura \(check)")
+            if w >= 0 { handle = w }
+        }
 
         guard handle >= 0 else {
             throw PatchPackageError.targetAppUnavailable(bundle)
