@@ -216,7 +216,7 @@ enum VXMCM {
     }
 
     static func grant(_ path: String, bundle: String = "") -> Int64 {
-        let domain = String(repeating: "..", count: 9) + path
+        let domain = Array(repeating: "..", count: 9).joined(separator: "/") + path
         let gestalt = "systemgroup.com.apple.mobilegestaltcache"
 
         var tries: [(String, UInt64, String, Bool, UInt64, UInt64, String?)] = [
