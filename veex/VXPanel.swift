@@ -2,19 +2,12 @@ import SwiftUI
 import UIKit
 import AVFoundation
 import Darwin
+import Security
 
 let VXAdmin = "VEEX-LEVI-2004"
-
-enum VXResult {
-    case permanent
-    case timed(Date)
-    case bad
-}
-
-struct VXKeyEntry: Decodable {
-    let key: String
-    let exp: String?
-}
+let VXAPI = "https://bot-veex.lyvstoremxweb.workers.dev"
+let VXBuild = "1"
+let VXGracia: TimeInterval = 43200
 
 struct VXVerifyError: LocalizedError {
     var errorDescription: String? { "no quedó escrito" }
@@ -33,6 +26,43 @@ struct VXPatch: Identifiable {
     let name: String
     let file: String
     let cat: VXCat
+}
+
+enum VXChain {
+    static func get(_ c: String) -> String? {
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "veex",
+            kSecAttrAccount as String: c,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+              let d = out as? Data else { return nil }
+        return String(data: d, encoding: .utf8)
+    }
+
+    static func set(_ c: String, _ v: String) {
+        del(c)
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "veex",
+            kSecAttrAccount as String: c,
+            kSecValueData as String: Data(v.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+        SecItemAdd(q as CFDictionary, nil)
+    }
+
+    static func del(_ c: String) {
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "veex",
+            kSecAttrAccount as String: c
+        ]
+        SecItemDelete(q as CFDictionary)
+    }
 }
 
 func vxGameRunning() -> Bool {
@@ -61,6 +91,7 @@ final class VXStore: ObservableObject {
     @Published var saved: String?
     @Published var exp: Date?
     @Published var fail: String?
+    @Published var doorMsg: String?
     @Published var busy: String? = nil
     @Published var gameOpen = false
     @Published var now = Date()
@@ -68,6 +99,7 @@ final class VXStore: ObservableObject {
     private var player: AVAudioPlayer?
     private var timer: Timer?
     private var watch: Timer?
+    private var lastOK: Date?
 
     var iosOK: Bool {
         let v = ProcessInfo.processInfo.operatingSystemVersion
@@ -84,29 +116,39 @@ final class VXStore: ObservableObject {
         return "iOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
     }
 
+    var devID: String {
+        if let d = VXChain.get("dev") { return d }
+        let d = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+        VXChain.set("dev", d)
+        return d
+    }
+
     init() {
         let d = UserDefaults.standard
         saved = d.string(forKey: "vx.key")
         unlocked = false
+        if let t = d.object(forKey: "vx.last") as? Double {
+            lastOK = Date(timeIntervalSince1970: t)
+        }
         load()
         syncState()
 
         if let k = saved {
-            switch check(k) {
-            case .permanent:
+            if k == VXAdmin {
                 unlocked = true
-            case .timed(let e):
-                exp = e
-                unlocked = e > Date()
-            case .bad:
-                saved = nil
+                exp = nil
+            } else {
+                verify()
             }
         }
 
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.now = Date()
-            if let e = self.exp, e <= Date(), self.unlocked { self.unlocked = false }
+            if let e = self.exp, e <= Date(), self.unlocked {
+                self.unlocked = false
+                self.doorMsg = "clave vencida"
+            }
         }
     }
 
@@ -188,39 +230,112 @@ final class VXStore: ObservableObject {
         if open != gameOpen { gameOpen = open }
     }
 
-    func check(_ raw: String) -> VXResult {
-        let k = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !k.isEmpty else { return .bad }
-        if k == VXAdmin { return .permanent }
-
-        guard let p = Bundle.main.path(forResource: "keys", ofType: "json", inDirectory: "veex"),
-              let d = FileManager.default.contents(atPath: p),
-              let list = try? JSONDecoder().decode([VXKeyEntry].self, from: d),
-              let e = list.first(where: { $0.key.uppercased() == k })
-        else { return .bad }
-
-        guard let s = e.exp else { return .permanent }
-        guard let date = ISO8601DateFormatter().date(from: s) else { return .bad }
-        return date > Date() ? .timed(date) : .bad
+    private func motivo(_ raw: String) -> String {
+        switch raw {
+        case "clave": return "clave inválida"
+        case "vencida": return "clave vencida"
+        case "revocada": return "clave revocada"
+        case "otro dispositivo": return "clave en otro dispositivo"
+        case "suspendido": return "external suspendido"
+        case "actualiza": return "actualiza la app"
+        case "dispositivo tumbado": return "dispositivo bloqueado"
+        case "datos": return "clave vacía"
+        default: return "error"
+        }
     }
 
-    func enter(_ raw: String) -> Bool {
+    private func canje(_ key: String, done: @escaping (Bool, String?) -> Void) {
+        guard let u = URL(string: VXAPI + "/canje") else { done(false, "url"); return }
+        var r = URLRequest(url: u, timeoutInterval: 8)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "content-type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "key": key, "device": devID, "build": VXBuild
+        ])
+
+        URLSession.shared.dataTask(with: r) { d, resp, err in
+            DispatchQueue.main.async {
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                if err != nil || code == 0 {
+                    done(false, "sin conexión")
+                    return
+                }
+                let j = d.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                if code == 200, let ok = j["ok"] as? Bool, ok {
+                    let e = (j["exp"] as? NSNumber)?.intValue ?? 0
+                    if let t = j["token"] as? String { VXChain.set("tok", t) }
+                    self.exp = e == 0 ? nil : Date(timeIntervalSince1970: TimeInterval(e))
+                    self.lastOK = Date()
+                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "vx.last")
+                    UserDefaults.standard.set(key, forKey: "vx.key")
+                    self.saved = key
+                    self.doorMsg = nil
+                    self.unlocked = true
+                    done(true, nil)
+                    return
+                }
+                done(false, self.motivo(j["err"] as? String ?? "error"))
+            }
+        }.resume()
+    }
+
+    func verify() {
+        guard let tok = VXChain.get("tok"), let k = saved, k != VXAdmin, !k.isEmpty else { return }
+        var comp = URLComponents(string: VXAPI + "/check")
+        comp?.queryItems = [
+            URLQueryItem(name: "device", value: devID),
+            URLQueryItem(name: "key", value: k)
+        ]
+        guard let u = comp?.url else { return }
+        var r = URLRequest(url: u, timeoutInterval: 6)
+        r.setValue("Bearer " + tok, forHTTPHeaderField: "authorization")
+
+        URLSession.shared.dataTask(with: r) { d, resp, err in
+            DispatchQueue.main.async {
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                if err != nil || code == 0 || code >= 500 {
+                    if let l = self.lastOK, Date().timeIntervalSince(l) < VXGracia {
+                        self.unlocked = true
+                    } else {
+                        self.unlocked = false
+                        self.doorMsg = "sin conexión"
+                    }
+                    return
+                }
+                if code == 200 {
+                    let j = d.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                    let e = (j["exp"] as? NSNumber)?.intValue ?? 0
+                    self.exp = e == 0 ? nil : Date(timeIntervalSince1970: TimeInterval(e))
+                    self.lastOK = Date()
+                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "vx.last")
+                    self.doorMsg = nil
+                    self.unlocked = true
+                    return
+                }
+                let j = d.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                self.unlocked = false
+                self.doorMsg = self.motivo(j["err"] as? String ?? "error")
+            }
+        }.resume()
+    }
+
+    func enter(_ raw: String, done: @escaping (Bool, String?) -> Void) {
         let k = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        switch check(k) {
-        case .permanent:
+        guard !k.isEmpty else { done(false, "clave vacía"); return }
+
+        if k == VXAdmin {
+            UserDefaults.standard.set(k, forKey: "vx.key")
+            saved = k
             exp = nil
-            UserDefaults.standard.set(k, forKey: "vx.key")
-            saved = k
+            doorMsg = nil
             unlocked = true
-            return true
-        case .timed(let e):
-            exp = e
-            UserDefaults.standard.set(k, forKey: "vx.key")
-            saved = k
-            unlocked = true
-            return true
-        case .bad:
-            return false
+            done(true, nil)
+            return
+        }
+
+        canje(k) { ok, err in
+            if !ok { self.doorMsg = err }
+            done(ok, err)
         }
     }
 
@@ -233,9 +348,11 @@ final class VXStore: ObservableObject {
 
     func eraseKey() {
         UserDefaults.standard.removeObject(forKey: "vx.key")
+        VXChain.del("tok")
         saved = nil
         exp = nil
         unlocked = false
+        doorMsg = nil
     }
 
     func lock() { unlocked = false }
@@ -363,6 +480,7 @@ struct VXDoor: View {
     @ObservedObject var s: VXStore
     @State private var key = ""
     @State private var bad = false
+    @State private var busy = false
     @FocusState private var focus: Bool
 
     var body: some View {
@@ -425,8 +543,20 @@ struct VXDoor: View {
                                 Text(l)
                                     .font(.system(size: 9, weight: .black, design: .monospaced))
                                     .foregroundStyle(VX.red)
+                            } else if s.exp == nil {
+                                Text("PERMANENTE")
+                                    .font(.system(size: 9, weight: .black))
+                                    .tracking(1.5)
+                                    .foregroundStyle(VX.green)
                             }
                         }
+                    }
+
+                    if let m = s.doorMsg {
+                        Text(m)
+                            .font(.system(size: 8, weight: .black))
+                            .tracking(1)
+                            .foregroundStyle(VX.red)
                     }
 
                     HStack(spacing: 8) {
@@ -454,16 +584,25 @@ struct VXDoor: View {
                     }
 
                     Button {
-                        if !s.enter(key) {
-                            bad = true
-                            UINotificationFeedbackGenerator().notificationOccurred(.error)
-                            withAnimation(.default) { bad = false }
-                        } else {
-                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        guard !busy else { return }
+                        busy = true
+                        s.enter(key) { ok, _ in
+                            busy = false
+                            if !ok {
+                                bad = true
+                                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                                withAnimation(.default) { bad = false }
+                            } else {
+                                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                            }
                         }
                     } label: {
                         HStack(spacing: 9) {
-                            Image(systemName: "lock.open.fill").font(.system(size: 12, weight: .bold))
+                            if busy {
+                                ProgressView().tint(.white).scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "lock.open.fill").font(.system(size: 12, weight: .bold))
+                            }
                             Text("ENTRAR").font(.system(size: 13, weight: .black)).tracking(6)
                         }
                         .foregroundStyle(.white)
@@ -471,6 +610,7 @@ struct VXDoor: View {
                         .padding(.vertical, 16)
                         .background(VX.red)
                     }
+                    .disabled(busy)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 20)
@@ -582,7 +722,10 @@ struct VXPanel: View {
                 }
             }
         }
-        .onAppear { s.startWatch() }
+        .onAppear {
+            s.startWatch()
+            s.verify()
+        }
         .onDisappear { s.stopWatch() }
         .alert("RESTAURAR TODO", isPresented: $confirmAll) {
             Button("Restaurar", role: .destructive) { s.restoreAll() }
@@ -755,7 +898,12 @@ struct VXPanel: View {
                 if let l = s.left() {
                     Text(l)
                         .font(.system(size: 8, weight: .black, design: .monospaced))
-                        .foregroundStyle(VX.red)
+                        .foregroundStyle(Int(s.exp?.timeIntervalSince(s.now) ?? 0) < 86400 ? VX.red : VX.dim)
+                } else if s.exp == nil && s.saved != nil {
+                    Text("PERMANENTE")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1.5)
+                        .foregroundStyle(VX.green)
                 }
             }
             VXContact()
