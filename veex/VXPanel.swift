@@ -1,601 +1,289 @@
 import SwiftUI
 import UIKit
-import AVFoundation
 
-let VXAdmin = "VEEX-LEVI-2004"
+// MARK: - Modelo
 
-enum VXResult {
-    case permanent
-    case timed(Date)
-    case bad
+enum VXGroup: String {
+    case aim = "AIMBOTS"
+    case visual = "VISUALES"
+    case util = "UTILIDAD"
 }
 
-struct VXKeyEntry: Decodable {
-    let key: String
-    let exp: String?
-}
-
-enum VXCat: String, CaseIterable, Identifiable {
-    case visual = "PRUEBA VISUAL"
-    case holo = "HOLOGRAMAS"
-    case aimbot = "AIMBOTS"
-    case extra = "EXTRAS"
-    var id: String { rawValue }
-}
-
-struct VXPatch: Identifiable {
+struct VXItem: Identifiable, Equatable {
     let id: String
-    let name: String
-    let file: String
-    let cat: VXCat
+    let title: String
+    let detail: String
+    let group: VXGroup
+    var file: String { id + ".3105" }
 }
 
-func vxIOSSupported() -> Bool {
-    let v = ProcessInfo.processInfo.operatingSystemVersion
-    let m = v.majorVersion, n = v.minorVersion, p = v.patchVersion
-    if m == 17 { return n <= 7 }
-    if m == 18 { return n < 7 || (n == 7 && p <= 10) }
-    if m == 26 { return n < 7 || (n == 7 && p <= 2) }
-    if m == 27 { return n < 2 || (n == 2 && p == 0) }
-    return false
-}
-
-func vxIOSLabel() -> String {
-    let v = ProcessInfo.processInfo.operatingSystemVersion
-    return "iOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
-}
+// MARK: - Estado
 
 final class VXStore: ObservableObject {
-    @Published var unlocked: Bool
-    @Published var cat: VXCat = .visual
+
+    static let catalog: [VXItem] = [
+        VXItem(id: "aim_drag",        title: "AIM DRAG",        detail: "Arrastre pegado al enemigo",   group: .aim),
+        VXItem(id: "aim_drag_antena", title: "AIM DRAG ANTENA", detail: "Arrastre sobre la cabeza",     group: .aim),
+        VXItem(id: "aim_pecho",       title: "AIM PECHO",       detail: "Arrastre al torso",            group: .aim),
+        VXItem(id: "holo_personaje",  title: "HOLOGRAMA PERSONAJE", detail: "Holograma en el modelo",   group: .visual),
+        VXItem(id: "holo_armas",      title: "HOLOGRAMA ARMAS", detail: "Holograma en el arma",         group: .visual),
+        VXItem(id: "balas_magicas",   title: "BALAS MÁGICAS",   detail: "Trazadoras visibles",          group: .visual),
+        VXItem(id: "reset_guest",     title: "RESET GUEST",     detail: "Limpia el invitado",           group: .util)
+    ]
+
+    @Published var items: [VXItem] = VXStore.catalog
     @Published var on: Set<String> = []
-    @Published var patches: [VXPatch] = []
-    @Published var saved: String?
-    @Published var exp: Date?
-    @Published var fail: String?
-    @Published var busy: String?
-    @Published var now = Date()
+    @Published var busy: String? = nil
+    @Published var error: String? = nil
+    @Published var note: String? = nil
 
-    private var player: AVAudioPlayer?
-    private var timer: Timer?
+    private let q = DispatchQueue(label: "veex.patch", qos: .userInitiated)
 
-    init() {
-        let d = UserDefaults.standard
-        saved = d.string(forKey: "vx.key")
-        unlocked = false
-        load()
-        syncState()
-
-        if let k = saved {
-            switch check(k) {
-            case .permanent:
-                unlocked = true
-            case .timed(let e):
-                exp = e
-                unlocked = e > Date()
-            case .bad:
-                saved = nil
-            }
+    static func syncNow() -> Set<String> {
+        var live: Set<String> = []
+        for item in catalog {
+            if (try? VXApply.isOn(item.file)) ?? false { live.insert(item.id) }
         }
+        return live
+    }
 
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.now = Date()
-            if let e = self.exp, e <= Date(), self.unlocked { self.unlocked = false }
+    func refresh() {
+        q.async {
+            let live = VXStore.syncNow()
+            DispatchQueue.main.async { self.on = live }
         }
     }
 
-    deinit { timer?.invalidate() }
-
-    private func load() {
-        let dir = Bundle.main.bundlePath + "/veex"
-        let files = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
-        patches = files.filter { $0.hasSuffix(".3105") }.sorted().map { f in
-            let n = (f as NSString).deletingPathExtension
-            return VXPatch(id: vxID(n), name: pretty(n), file: f, cat: cat(of: n))
-        }
+    func dismissError() {
+        error = nil
+        note = nil
     }
 
-    private func vxID(_ n: String) -> String {
-        let l = n.lowercased()
-        if l.hasPrefix("holo_armas") { return "holoarm" }
-        if l.hasPrefix("holo_personaje") { return "holoper" }
-        if l.hasPrefix("reset") { return "guest" }
-        if l.hasPrefix("aim_drag_antena") { return "antena" }
-        if l == "aim_drag" { return "drag" }
-        if l.hasPrefix("aim_pecho") { return "pecho" }
-        if l.hasPrefix("balas") { return "balas" }
-        return l.replacingOccurrences(of: " ", with: "")
-    }
-
-    private func pretty(_ n: String) -> String {
-        let l = n.lowercased()
-        if l.hasPrefix("holo_personaje") { return "HOLOGRAMA PERSONAJE" }
-        if l.hasPrefix("holo_armas") { return "HOLOGRAMA ARMAS" }
-        if l == "aim_drag" { return "AIM DRAG" }
-        if l == "aim_pecho" { return "AIM PECHO" }
-        if l == "aim_drag_antena" { return "AIM DRAG ANTENA" }
-        if l == "balas_magicas" { return "BALAS MÁGICAS" }
-        if l.hasPrefix("reset") { return "RESET GUEST" }
-        return n.replacingOccurrences(of: "_", with: " ").uppercased()
-    }
-
-    private func cat(of n: String) -> VXCat {
-        let l = n.lowercased()
-        if l.hasPrefix("holo_") { return .holo }
-        if l.hasPrefix("aim_") || l.hasPrefix("balas") { return .aimbot }
-        return .extra
-    }
-
-    func note(_ id: String) -> String? {
-        if id == "balas" || id == "holoarm" { return "bajo tu propio riesgo" }
-        if id == "guest" { return "no dejar activado" }
-        return nil
-    }
-
-    func syncState() {
-        let list = patches
-        DispatchQueue.global(qos: .userInitiated).async {
-            var active = Set<String>()
-            for p in list where VXApply.isOn(p.file) { active.insert(p.id) }
-            DispatchQueue.main.async { self.on = active }
-        }
-    }
-
-    func check(_ raw: String) -> VXResult {
-        let k = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !k.isEmpty else { return .bad }
-        if k == VXAdmin { return .permanent }
-
-        guard let p = Bundle.main.path(forResource: "keys", ofType: "json", inDirectory: "veex"),
-              let d = FileManager.default.contents(atPath: p),
-              let list = try? JSONDecoder().decode([VXKeyEntry].self, from: d),
-              let e = list.first(where: { $0.key.uppercased() == k })
-        else { return .bad }
-
-        guard let s = e.exp else { return .permanent }
-        guard let date = ISO8601DateFormatter().date(from: s) else { return .bad }
-        return date > Date() ? .timed(date) : .bad
-    }
-
-    func enter(_ raw: String) -> Bool {
-        let k = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        switch check(k) {
-        case .permanent:
-            exp = nil
-            UserDefaults.standard.set(k, forKey: "vx.key")
-            saved = k
-            unlocked = true
-            return true
-        case .timed(let e):
-            exp = e
-            UserDefaults.standard.set(k, forKey: "vx.key")
-            saved = k
-            unlocked = true
-            return true
-        case .bad:
-            return false
-        }
-    }
-
-    func saveKey(_ raw: String) {
-        let k = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !k.isEmpty else { return }
-        UserDefaults.standard.set(k, forKey: "vx.key")
-        saved = k
-    }
-
-    func eraseKey() {
-        UserDefaults.standard.removeObject(forKey: "vx.key")
-        saved = nil
-        exp = nil
-        unlocked = false
-    }
-
-    func lock() { unlocked = false }
-
-    func left() -> String? {
-        guard let e = exp else { return nil }
-        let s = max(0, Int(e.timeIntervalSince(now)))
-        let d = s / 86400, h = (s % 86400) / 3600, m = (s % 3600) / 60, x = s % 60
-        return d > 0 ? String(format: "%dd %02d:%02d:%02d", d, h, m, x)
-                     : String(format: "%02d:%02d:%02d", h, m, x)
-    }
-
-    func toggle(_ p: VXPatch) {
+    func toggle(_ item: VXItem) {
         guard busy == nil else { return }
-        fail = nil
-        let turningOn = !on.contains(p.id)
-        if turningOn { on.insert(p.id) } else { on.remove(p.id) }
-        play(turningOn ? "on" : "off")
-        busy = p.id
+        let target = !on.contains(item.id)
 
-        let list = patches
+        var exclusivos: [VXItem] = []
+        if target && item.group == .aim {
+            exclusivos = items.filter { $0.group == .aim && on.contains($0.id) && $0.id != item.id }
+        }
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            var error: String?
+        busy = item.id
+        error = nil
+        note = nil
 
-            if turningOn {
-                if p.cat == .aimbot {
-                    for other in list where other.cat == .aimbot && other.id != p.id && VXApply.isOn(other.file) {
-                        try? VXApply.restore(other.file)
-                    }
+        var optimista = on
+        for old in exclusivos { optimista.remove(old.id) }
+        if target { optimista.insert(item.id) } else { optimista.remove(item.id) }
+        on = optimista
+
+        q.async {
+            do {
+                for old in exclusivos { try VXApply.restore(old.file) }
+                if target { try VXApply.apply(item.file) } else { try VXApply.restore(item.file) }
+                let live = VXStore.syncNow()
+                DispatchQueue.main.async {
+                    self.on = live
+                    self.busy = nil
+                    self.note = target ? "\(item.title) activo. Abre Free Fire." : "\(item.title) restaurado."
                 }
-                do { try VXApply.apply(p.file) } catch { error = String(describing: error) }
-            } else {
-                do { try VXApply.restore(p.file) } catch { error = String(describing: error) }
-            }
-
-            DispatchQueue.main.async {
-                self.busy = nil
-                if let error {
-                    if turningOn { self.on.remove(p.id) } else { self.on.insert(p.id) }
-                    self.fail = "\(p.name): \(error)"
-                    self.play("off")
+            } catch let err {
+                let msg = String(describing: err)
+                let live = VXStore.syncNow()
+                DispatchQueue.main.async {
+                    self.on = live
+                    self.busy = nil
+                    self.error = msg
                 }
-                self.syncState()
             }
-        }
-    }
-
-    func openGame() {
-        for s in ["freefire://", "freefiremax://"] {
-            guard let u = URL(string: s) else { continue }
-            UIApplication.shared.open(u, options: [:], completionHandler: nil)
-            return
-        }
-    }
-
-    func play(_ n: String) {
-        guard let p = Bundle.main.path(forResource: n, ofType: "mp3", inDirectory: "veex") else { return }
-        player = try? AVAudioPlayer(contentsOf: URL(fileURLWithPath: p))
-        player?.play()
-    }
-}
-
-struct VXContact: View {
-    var body: some View {
-        HStack(spacing: 8) {
-            link("CONTACTO", "https://t.me/levibrouh", VX.red)
-            link("CANAL", "https://t.me/levibrouhs", VX.slab)
-        }
-    }
-
-    private func link(_ t: String, _ u: String, _ c: Color) -> some View {
-        Link(destination: URL(string: u)!) {
-            HStack(spacing: 6) {
-                Image(systemName: "paperplane.fill").font(.system(size: 10, weight: .bold))
-                Text(t).font(.system(size: 9, weight: .black)).tracking(3)
-            }
-            .foregroundStyle(c == VX.slab ? VX.paper : .white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 13)
-            .background(c)
-            .overlay(Rectangle().stroke(c == VX.slab ? VX.line : .clear, lineWidth: 1))
         }
     }
 }
 
-struct VXDoor: View {
-    @ObservedObject var s: VXStore
-    @State private var key = ""
-    @State private var bad = false
-    @FocusState private var focus: Bool
+// MARK: - Abrir el juego
 
-    var body: some View {
-        ZStack {
-            VX.ink.ignoresSafeArea()
-            VXSmoke().ignoresSafeArea()
-            VXNoise().ignoresSafeArea()
+enum VXOpen {
+    static let freeFire = "com.dts.freefireth"
 
-            VStack(spacing: 0) {
-                Spacer()
-                VXMark(size: 66)
-                Text("EXTERNAL")
-                    .font(.system(size: 10, weight: .black))
-                    .tracking(11)
-                    .foregroundStyle(VX.red)
-                    .padding(.top, 16)
-                Spacer()
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("CLAVE DE ACCESO")
-                        .font(.system(size: 8, weight: .black))
-                        .tracking(4)
-                        .foregroundStyle(VX.dim)
-
-                    TextField("", text: $key)
-                        .focused($focus)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        .multilineTextAlignment(.center)
-                        .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(VX.paper)
-                        .padding(.vertical, 15)
-                        .background(Color.black.opacity(0.5))
-                        .overlay(Rectangle().stroke(bad ? VX.red : VX.line, lineWidth: 1.2))
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("SOPORTADO: 17.0–18.7.10 · 26.0–26.7.2 · 27.0–27.2")
-                            .font(.system(size: 7, weight: .heavy))
-                            .tracking(0.8)
-                            .foregroundStyle(VX.dim)
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(vxIOSSupported() ? VX.green : VX.red)
-                                .frame(width: 6, height: 6)
-                            Text("\(vxIOSLabel()) · \(vxIOSSupported() ? "SOPORTADO" : "NO SOPORTADO")")
-                                .font(.system(size: 8, weight: .black))
-                                .tracking(1.6)
-                                .foregroundStyle(vxIOSSupported() ? VX.green : VX.red)
-                        }
-                    }
-
-                    if let saved = s.saved {
-                        HStack(spacing: 6) {
-                            Text(saved)
-                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(VX.dim)
-                                .lineLimit(1)
-                            Spacer()
-                            if let l = s.left() {
-                                Text(l)
-                                    .font(.system(size: 9, weight: .black, design: .monospaced))
-                                    .foregroundStyle(VX.red)
-                            }
-                        }
-                    }
-
-                    HStack(spacing: 8) {
-                        Button {
-                            s.saveKey(key)
-                        } label: {
-                            Text("GUARDAR")
-                                .font(.system(size: 9, weight: .black)).tracking(2.5)
-                                .foregroundStyle(VX.paper)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
-                        }
-                        Button {
-                            s.eraseKey()
-                            key = ""
-                        } label: {
-                            Text("BORRAR")
-                                .font(.system(size: 9, weight: .black)).tracking(2.5)
-                                .foregroundStyle(VX.red)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .overlay(Rectangle().stroke(VX.red, lineWidth: 1))
-                        }
-                    }
-
-                    Button {
-                        if !s.enter(key) {
-                            bad = true
-                            UINotificationFeedbackGenerator().notificationOccurred(.error)
-                            withAnimation(.default) { bad = false }
-                        } else {
-                            UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        }
-                    } label: {
-                        HStack(spacing: 9) {
-                            Image(systemName: "lock.open.fill").font(.system(size: 12, weight: .bold))
-                            Text("ENTRAR").font(.system(size: 13, weight: .black)).tracking(6)
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(VX.red)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 20)
-                .vxCard()
-
-                Spacer()
-
-                VXContact()
-
-                Text("BY LEVI")
-                    .font(.system(size: 7, weight: .black))
-                    .tracking(5)
-                    .foregroundStyle(VX.dim)
-                    .padding(.top, 14)
-                    .padding(.bottom, 26)
+    static func game() {
+        if let cls = NSClassFromString("LSApplicationWorkspace") as? NSObject.Type {
+            if let ws = cls.perform(NSSelectorFromString("defaultWorkspace"))?.takeUnretainedValue() {
+                _ = ws.perform(NSSelectorFromString("openApplicationWithBundleID:"), with: freeFire as NSString)
             }
-            .padding(.horizontal, 26)
         }
-        .onAppear {
-            focus = true
-            if let k = s.saved { key = k }
+        if let url = URL(string: "freefire://") {
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
         }
     }
 }
+
+// MARK: - Panel
 
 struct VXPanel: View {
-    @ObservedObject var s: VXStore
+
+    @StateObject private var store = VXStore()
+
+    private let fondo = Color(red: 0.05, green: 0.06, blue: 0.09)
+    private let carta = Color(red: 0.10, green: 0.11, blue: 0.15)
+    private let acento = Color(red: 0.35, green: 0.85, blue: 0.65)
 
     var body: some View {
         ZStack {
-            VX.ink.ignoresSafeArea()
-            VXNoise().ignoresSafeArea()
-
+            fondo.ignoresSafeArea()
             VStack(spacing: 0) {
-                header
-                tabs
-                if s.cat == .visual {
-                    VXPreview(s: s)
-                } else {
-                    ScrollView {
-                        if s.cat == .extra { VXEngineCard().padding(.horizontal, 14) }
-                        LazyVStack(spacing: 5) {
-                            ForEach(s.patches.filter { $0.cat == s.cat }) { p in
-                                row(p)
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.top, 4)
+                encabezado
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 18) {
+                        seccion(.aim)
+                        seccion(.visual)
+                        seccion(.util)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 20)
                 }
-                footer
+                pie
             }
         }
+        .preferredColorScheme(.dark)
+        .onAppear { store.refresh() }
     }
 
-    private var header: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 9) {
-                VXMark(size: 18)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("EXTERNAL").font(.system(size: 10, weight: .black)).tracking(5).foregroundStyle(VX.paper)
-                    Text("BY LEVI").font(.system(size: 7, weight: .heavy)).tracking(3).foregroundStyle(VX.red)
-                }
-                Spacer()
-                Button { s.lock() } label: {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(VX.dim)
-                        .frame(width: 32, height: 32)
-                        .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
-                }
-            }
-            Rectangle().fill(VX.line).frame(height: 1)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
-    }
-
-    private var tabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(VXCat.allCases) { c in
-                    Button {
-                        withAnimation(.easeOut(duration: 0.1)) { s.cat = c }
-                    } label: {
-                        Text(c.rawValue)
-                            .font(.system(size: 8, weight: .black))
-                            .tracking(2)
-                            .foregroundStyle(s.cat == c ? .white : VX.dim)
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 9)
-                            .background(s.cat == c ? VX.red : VX.slab)
-                            .overlay(Rectangle().stroke(s.cat == c ? .clear : VX.line, lineWidth: 1))
-                    }
-                }
-            }
-            .padding(.horizontal, 14)
-        }
-        .padding(.top, 12)
-        .padding(.bottom, 12)
-    }
-
-    private func row(_ p: VXPatch) -> some View {
-        let active = s.on.contains(p.id)
-        let working = s.busy == p.id
-        return HStack(spacing: 12) {
-            Rectangle().fill(active ? VX.green : VX.line).frame(width: 2, height: 28)
+    private var encabezado: some View {
+        HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(p.name)
-                    .font(.system(size: 11, weight: .black))
-                    .tracking(1.4)
-                    .foregroundStyle(active ? VX.paper : VX.dim)
-                if let n = s.note(p.id) {
-                    Text(n)
-                        .font(.system(size: 7, weight: .heavy))
-                        .tracking(0.6)
-                        .foregroundStyle(VX.red)
-                }
+                Text("VEEX")
+                    .font(.system(size: 26, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white)
+                Text("3105 · iOS 17 – 27.2")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.gray)
             }
             Spacer()
-            if working {
-                ProgressView().tint(.white).scaleEffect(0.8).frame(width: 56, height: 30)
-            } else {
-                Button {
-                    s.toggle(p)
-                } label: {
-                    Text(active ? "ON" : "OFF")
-                        .font(.system(size: 9, weight: .black))
-                        .tracking(2)
-                        .foregroundStyle(active ? .black : .white)
-                        .frame(width: 56, height: 30)
-                        .background(active ? VX.green : VX.red)
-                }
-                .disabled(s.busy != nil)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(store.on.count)")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundColor(acento)
+                Text("ACTIVOS")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.gray)
             }
+            Button {
+                store.refresh()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.gray)
+                    .padding(8)
+                    .background(carta)
+                    .clipShape(Circle())
+            }
+            .padding(.leading, 10)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .vxCard(Color(white: 0.10))
+        .padding(.horizontal, 16)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
     }
 
-    private var footer: some View {
+    private func seccion(_ group: VXGroup) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(group.rawValue)
+                .font(.system(size: 10, weight: .heavy))
+                .foregroundColor(.gray)
+                .padding(.leading, 4)
+            ForEach(store.items.filter { $0.group == group }) { item in
+                fila(item)
+            }
+        }
+    }
+
+    private func fila(_ item: VXItem) -> some View {
+        let activo = store.on.contains(item.id)
+        let cargando = store.busy == item.id
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+                Text(item.detail)
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray)
+            }
+            Spacer()
+            if cargando {
+                ProgressView()
+                    .scaleEffect(0.7)
+            } else {
+                ZStack(alignment: activo ? .trailing : .leading) {
+                    Capsule()
+                        .fill(activo ? acento : Color(white: 0.25))
+                        .frame(width: 44, height: 25)
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 19, height: 19)
+                        .padding(.horizontal, 3)
+                }
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 11)
+        .background(carta)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(activo ? acento.opacity(0.45) : Color.clear, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { store.toggle(item) }
+    }
+
+    private var pie: some View {
         VStack(spacing: 8) {
-            Rectangle().fill(VX.line).frame(height: 1)
-
-            if let f = s.fail {
-                Text(f)
-                    .font(.system(size: 8, weight: .heavy))
-                    .tracking(0.6)
-                    .foregroundStyle(VX.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if let error = store.error {
+                Text(error)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(Color(red: 1, green: 0.42, blue: 0.42))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(8)
+                    .background(Color(red: 0.16, green: 0.07, blue: 0.09))
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                    .onTapGesture { store.dismissError() }
+            } else if let note = store.note {
+                Text(note)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(acento)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(8)
+                    .background(Color(red: 0.06, green: 0.14, blue: 0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                    .onTapGesture { store.dismissError() }
+            } else {
+                Text("Cierra Free Fire antes de mover un switch")
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray)
             }
 
-            HStack(spacing: 8) {
-                Text("\(s.on.count) ACTIVOS")
-                    .font(.system(size: 8, weight: .black)).tracking(2)
-                    .foregroundStyle(VX.green)
-                Spacer()
-                if let l = s.left() {
-                    Text(l)
-                        .font(.system(size: 8, weight: .black, design: .monospaced))
-                        .foregroundStyle(VX.red)
-                }
-            }
-
-            Button { s.openGame() } label: {
+            Button {
+                VXOpen.game()
+            } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "gamecontroller.fill").font(.system(size: 11, weight: .bold))
-                    Text("ABRIR FREE FIRE").font(.system(size: 11, weight: .black)).tracking(2)
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 12, weight: .bold))
+                    Text("ABRIR FREE FIRE")
+                        .font(.system(size: 13, weight: .heavy))
                 }
-                .foregroundStyle(.black)
+                .foregroundColor(Color(red: 0.03, green: 0.09, blue: 0.07))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 13)
-                .background(VX.green)
+                .background(acento)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-
-            Text("cierra Free Fire antes de prender o apagar")
-                .font(.system(size: 7, weight: .heavy))
-                .tracking(0.5)
-                .foregroundStyle(VX.dim)
-
-            VXContact()
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
-        .padding(.bottom, 14)
+        .padding(.bottom, 24)
+        .background(fondo)
     }
-}
-
-struct VXRoot: View {
-    @StateObject private var s = VXStore()
-    var body: some View {
-        ZStack {
-            VX.ink.ignoresSafeArea()
-            if s.unlocked { VXPanel(s: s) } else { VXDoor(s: s) }
-        }
-        .preferredColorScheme(.dark)
-    }
-}
-
-final class VXHost: UIHostingController<VXRoot> {
-    init() { super.init(rootView: VXRoot()) }
-    required init?(coder: NSCoder) { fatalError() }
-}
-
-@_cdecl("VXMakePanel")
-public func VXMakePanel() -> UIViewController {
-    let h = VXHost()
-    h.view.backgroundColor = .black
-    return h
 }
