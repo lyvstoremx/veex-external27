@@ -1,0 +1,103 @@
+# MÉTODO VEEX
+
+Interno. Qué es, cómo se arma, qué cambia por versión de iOS y qué revisar antes de publicar.
+
+## 1. Qué es
+
+VEEX es **3105 con la vista raíz reemplazada**. El motor de parches, los permisos de contenedor y las transacciones son de 3105 y viven en su binario. VEEX aporta la vista SwiftUI, el envoltorio `VXApply`, la puerta de licencias, y nombre, icono y splash distintos.
+
+Bundle ID sin tocar: `com.apple.mobile.MobileHouseArrest`. El IPA define el techo de versiones, por eso se inyecta y no se compila desde el fuente público.
+
+## 2. Estructura
+
+Del repo viejo se traen en cada build: `patches/*.3105`, `voices/*.mp3`, `keys.json` y los cinco helpers del motor.
+
+## 3. Arranque
+
+`main.m` corre en constructor, encola en el hilo principal, crea ventana `Alert + 1` con `VXMakePanel()` y tapa las ventanas ajenas con un velo. `VXMakePanel` se implementa con `@_cdecl` en `VXPanel.swift`. Si desaparece, el enlace falla con `_VXMakePanel`.
+
+## 4. Permisos de contenedor por versión
+
+Esta es la parte que más cambia. **Nunca asumas que lo de una versión sirve en otra.**
+
+| Versión | Mecanismo | Estado |
+|---|---|---|
+| 17.0–17.7 | kexploit + escape de sandbox | Funciona. La extensión no se usa. |
+| 18.0–18.7.10 | kexploit + escape de sandbox | Funciona. La extensión no se usa. |
+| 26.0–26.6.1 | Extensión MCM: clase 13, grupo gestalt, part 3, flags 0x8000000000, token por `sandbox_extension_consume` | Funciona. Sin kexploit. |
+| 26.7–26.7.2 | Igual que 26.6 | Funciona con la misma ruta. |
+| 26.7.3 | Igual, pero fuera de la política escrita | Probar antes de prometer. |
+| 27.0–27.3 | La clase 13 ya no responde y la clase 2 no entrega token; `activate` devuelve `true` sin conceder nada | **Solo con kexploit.** La ruta MCM está agotada. |
+
+Reglas que salieron de la depuración:
+
+- El dominio se arma con barras: nueve `..` unidos con `/` más la ruta. Con `String(repeating:)` salen puntos pegados y el daemon contesta posix 2.
+- El token se lee **de la copia del objeto**, no del objeto crudo. En 27 viene nulo por las dos vías, pero el orden correcto es ese.
+- `activate` devolviendo `true` no significa nada si no hubo token.
+- Validación real: abrir el directorio con `O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW` y escribir un archivo de prueba en la raíz, `Documents`, `Library`, `tmp` y `Library/Caches`.
+- En 27 la escritura falla con `errno 1` en todas.
+
+## 5. Motor de parches
+
+`VXApply` es el único contacto: `url`, `install` (inspecciona, saca llave con `PatchKeyStore` o el password de respaldo, decodifica, registra y amarra el `packageID` a un UUID en `UserDefaults`), `apply`, `restore` (`inspectRestore` + `restore(allowChangedTargets:)`), e `isOn` como fuente de verdad.
+
+Los switches no guardan estado: aplican o restauran al instante, releen `isOn` y revierten con error si no cuajó. Los aimbots son excluyentes.
+
+## 6. Puerta
+
+Contra `https://bot-veex.lyvstoremxweb.workers.dev`: `POST /canje` con clave, dispositivo y build; `GET /check` al abrir y cada 60 s. Token y UUID en Keychain, clave y última validación en `UserDefaults`. Sin red, 12 h de gracia. `VEEX-LEVI-2004` es la llave de emergencia y no pasa por el servidor, por eso el repo debe seguir privado. `VXBuild` se sube por release.
+
+## 7. Backend
+
+Worker `bot-veex`, D1 `bot-veex`, bot `@brouhsresellers_bot`. Tablas `keys`, `devices`, `resellers`, `state`. `exp = 0` es permanente; `multi = 1` son las de horas y no amarran dispositivo. Revocar mata la clave; bloquear mata el dispositivo.
+
+## 8. Compilación
+
+Clona el repo viejo, copia recursos y helpers, compila el dylib con `swiftc -target arm64-apple-ios16.0 -emit-library`, inyecta `LC_LOAD_DYLIB` con LIEF, mete recursos, cambia nombre, splash e icono, firma ad hoc y empaqueta. No cambies la ruta del dylib ni el nombre del artefacto.
+
+## 9. Si 3105 cambia
+
+- Cambia la firma de `DevicePatchService.apply` → `VXApply.apply`.
+- Cambia `PatchPackageCodec.inspect/decode` o el password → `VXApply.password` e `install`.
+- Cambia el recibo → `inspectRestore`, `restore`, `latestReceipt`.
+- Cambia `installImportedPackage` → `install`.
+- Cambia la política de versiones → `iosOK` y el texto de la puerta.
+- Cambia el bundle ID de Free Fire → `VXOpen.freeFire` y `VXContainers`.
+- Cambia `exploit/mcm_bridge.m` o `bad_query.c` → replicar en `VXShim`.
+- Cambia `kexploit/` → recopiar la carpeta nativa y revisar offsets.
+
+## 10. Si Apple cambia
+
+- Un iOS nuevo deja de escribir → correr diagnóstico (logo 3 s), leer `veex.log`, y decidir si es extensión o kexploit.
+- La clase 13 deja de responder → ya pasó en 27; pasar a kexploit.
+- El token viene nulo → lo mismo.
+- `errno 1` en todas las carpetas con `activate = true` → extensión vacía, kexploit obligatorio.
+- Cambia el nombre del grupo gestalt → probar `systemgroup.com.apple.configurationprofiles`.
+- Cambian los offsets del kexploit → esperar build nuevo del exploit y subir la versión mínima del IPA.
+
+## 11. Frágiles
+
+- El password de respaldo está en el binario: rotarlo por release.
+- `keys.json` sigue viajando y ya no se usa: quitarlo del workflow.
+- Sin rate limit en `/canje`.
+- Sin 2FA en Cloudflare.
+- El dylib es parcheable; la puerta se puede saltar con trabajo.
+- El token del bot se compartió en un chat: rotarlo en BotFather y actualizar `TG`.
+- La llave de admin estuvo pública mientras el repo estuvo público: rotarla.
+
+## 12. Antes de publicar
+
+- `VXBuild` subido.
+- Probado en 26.6 y en 27.x.
+- Clave de 1h entra en dos teléfonos; clave de 1d rechazada en el segundo.
+- Kill global saca al reabrir; REVIVIR devuelve el acceso.
+- La emergencia entra con todo muerto.
+- Repo privado, `keys.json` fuera, rate limit puesto.
+
+## 13. Pendientes
+
+- Compilar `kexploit/` y `exploit/` al dylib y disparar `KernelExploit.run()` cuando falle la escritura, con reintento y estado "PREPARANDO".
+- Subir el gate a 27.3.
+- Quitar `keys.json` del workflow.
+- Rate limit, rotar token y llave.
+- Probar 26.7.3 y 27.2.1 en dispositivo propio.
