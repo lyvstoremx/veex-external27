@@ -35,21 +35,6 @@ struct VXPatch: Identifiable {
     let cat: VXCat
 }
 
-func vxIOSSupported() -> Bool {
-    let v = ProcessInfo.processInfo.operatingSystemVersion
-    let m = v.majorVersion, n = v.minorVersion, p = v.patchVersion
-    if m == 17 { return n <= 7 }
-    if m == 18 { return n < 7 || (n == 7 && p <= 10) }
-    if m == 26 { return n < 7 || (n == 7 && p <= 2) }
-    if m == 27 { return n < 2 || (n == 2 && p == 0) }
-    return false
-}
-
-func vxIOSLabel() -> String {
-    let v = ProcessInfo.processInfo.operatingSystemVersion
-    return "iOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
-}
-
 func vxGameRunning() -> Bool {
     var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
     var size = 0
@@ -83,6 +68,21 @@ final class VXStore: ObservableObject {
     private var player: AVAudioPlayer?
     private var timer: Timer?
     private var watch: Timer?
+
+    var iosOK: Bool {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        let m = v.majorVersion, n = v.minorVersion, p = v.patchVersion
+        if m == 17 { return n <= 7 }
+        if m == 18 { return n < 7 || (n == 7 && p <= 10) }
+        if m == 26 { return n < 7 || (n == 7 && p <= 2) }
+        if m == 27 { return n < 2 || (n == 2 && p == 0) }
+        return false
+    }
+
+    var iosLabel: String {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "iOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+    }
 
     init() {
         let d = UserDefaults.standard
@@ -251,8 +251,8 @@ final class VXStore: ObservableObject {
     func toggle(_ p: VXPatch) {
         guard busy == nil else { return }
 
-        guard vxIOSSupported() else {
-            fail = vxIOSLabel() + " NO SOPORTADO"
+        guard iosOK else {
+            fail = iosLabel + " NO SOPORTADO"
             play("off")
             return
         }
@@ -405,12 +405,12 @@ struct VXDoor: View {
                             .foregroundStyle(VX.dim)
                         HStack(spacing: 6) {
                             Circle()
-                                .fill(vxIOSSupported() ? VX.green : VX.red)
+                                .fill(s.iosOK ? VX.green : VX.red)
                                 .frame(width: 6, height: 6)
-                            Text("\(vxIOSLabel()) · \(vxIOSupported() ? "SOPORTADO" : "NO SOPORTADO")")
+                            Text(s.iosLabel + " · " + (s.iosOK ? "SOPORTADO" : "NO SOPORTADO"))
                                 .font(.system(size: 8, weight: .black))
                                 .tracking(1.6)
-                                .foregroundStyle(vxIOSupported() ? VX.green : VX.red)
+                                .foregroundStyle(s.iosOK ? VX.green : VX.red)
                         }
                     }
 
@@ -536,6 +536,12 @@ struct VXPanel: View {
                                 }
                                 .disabled(s.busy != nil)
                                 .padding(.top, 4)
+
+                                Text("SOLO ÚSALO SI EL JUEGO QUEDÓ RARO")
+                                    .font(.system(size: 7, weight: .heavy))
+                                    .tracking(0.6)
+                                    .foregroundStyle(VX.red)
+                                    .frame(maxWidth: .infinity, alignment: .center)
                             }
                         }
                         .padding(.horizontal, 14)
