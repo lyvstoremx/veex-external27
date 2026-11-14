@@ -1,3 +1,11 @@
+//
+//  VXWorse.swift
+//  Ruta de contenedores para iOS 27+. Solo se invoca si MCM falla.
+//
+
+import Foundation
+import Darwin
+
 enum VXWorse {
     private typealias S1 = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
     private typealias S2 = @convention(c) (UnsafePointer<CChar>, Int64) -> UnsafeMutablePointer<CChar>?
@@ -52,7 +60,7 @@ enum VXWorse {
         defer { free(c) }
 
         func ok(_ h: Int64, _ label: String) -> Int64? {
-            usleep(60_000)
+            Thread.sleep(forTimeInterval: 0.06)
             let w = VXContainers.writeTest(path)
             log("vx: worse \(label) → \(h) · escritura \(w)")
             if w == "ok" { return h }
