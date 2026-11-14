@@ -5,6 +5,8 @@ import Security
 
 enum VXEngine {
     static let symbols = [
+        "sandbox_extension_consume",
+        "sandbox_extension_release",
         "afc_client_connect_rsd",
         "afc_client_new_with_rsd",
         "afc_client_free",
@@ -114,9 +116,10 @@ enum VXEngine {
         guard let p = path(for: bundle) else { return ["sin ruta para \(bundle)"] }
         out.append("ruta: \(p)")
         out.append("escritura: " + VXContainers.writeTest(p))
-        let h = grant(p)
+        let h = VXMCM.grant(p, bundle: bundle)
+        out.append("escritura después: " + VXContainers.writeTest(p))
         out.append("grant: \(h)")
-        if h >= 0 { release(h) }
+        if h > 1 { release(h) }
         let items = list(p)
         out.append("items: \(items.count)")
         out.append(contentsOf: items.prefix(30))
