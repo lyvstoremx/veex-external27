@@ -115,8 +115,6 @@ static void vx_watch(int n) {
 
 __attribute__((constructor))
 static void vx_init(void) {
-    VXGateInstall();
-
     Method m = class_getInstanceMethod([UIWindow class], @selector(makeKeyAndVisible));
     if (m) {
         vxOrigMKAV = (void (*)(id, SEL))method_getImplementation(m);
@@ -124,6 +122,7 @@ static void vx_init(void) {
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
+        VXGateInstall();
         vx_cover();
         vx_watch(0);
         [[NSNotificationCenter defaultCenter]
