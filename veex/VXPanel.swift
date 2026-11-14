@@ -26,6 +26,7 @@ enum VXCat: String, CaseIterable, Identifiable {
 struct VXPatch: Identifiable {
     let id: String
     let name: String
+    let file: String
     let cat: VXCat
 }
 
@@ -51,6 +52,9 @@ final class VXStore: ObservableObject {
     @Published var patches: [VXPatch] = []
     @Published var saved: String?
     @Published var exp: Date?
+    @Published var fail: String?
+    @Published var busy = false
+    @Published var done = false
     @Published var now = Date()
 
     private var player: AVAudioPlayer?
@@ -61,6 +65,7 @@ final class VXStore: ObservableObject {
         saved = d.string(forKey: "vx.key")
         unlocked = false
         load()
+        syncState()
 
         if let k = saved {
             switch check(k) {
@@ -88,8 +93,20 @@ final class VXStore: ObservableObject {
         let files = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
         patches = files.filter { $0.hasSuffix(".3105") }.sorted().map { f in
             let n = (f as NSString).deletingPathExtension
-            return VXPatch(id: n, name: pretty(n), cat: cat(of: n))
+            return VXPatch(id: vxID(n), name: pretty(n), file: f, cat: cat(of: n))
         }
+    }
+
+    private func vxID(_ n: String) -> String {
+        let l = n.lowercased()
+        if l.hasPrefix("holo_armas") { return "holoarm" }
+        if l.hasPrefix("holo_personaje") { return "holoper" }
+        if l.hasPrefix("reset") { return "guest" }
+        if l.hasPrefix("aim_drag_antena") { return "antena" }
+        if l == "aim_drag" { return "drag" }
+        if l.hasPrefix("aim_pecho") { return "pecho" }
+        if l.hasPrefix("balas") { return "balas" }
+        return l.replacingOccurrences(of: " ", with: "")
     }
 
     private func pretty(_ n: String) -> String {
@@ -112,10 +129,18 @@ final class VXStore: ObservableObject {
     }
 
     func note(_ id: String) -> String? {
-        let l = id.lowercased()
-        if l == "balas_magicas" || l.hasPrefix("holo_armas") { return "bajo tu propio riesgo" }
-        if l.hasPrefix("reset") { return "no dejar activado" }
+        if id == "balas" || id == "holoarm" { return "bajo tu propio riesgo" }
+        if id == "guest" { return "no dejar activado" }
         return nil
+    }
+
+    func syncState() {
+        let list = patches
+        DispatchQueue.global(qos: .userInitiated).async {
+            var active = Set<String>()
+            for p in list where VXApply.isOn(p.file) { active.insert(p.id) }
+            DispatchQueue.main.async { self.on = active }
+        }
     }
 
     func check(_ raw: String) -> VXResult {
@@ -179,7 +204,55 @@ final class VXStore: ObservableObject {
     }
 
     func toggle(_ p: VXPatch) {
-        if on.contains(p.id) { on.remove(p.id); play("off") } else { on.insert(p.id); play("on") }
+        guard !busy else { return }
+        if on.contains(p.id) { on.remove(p.id) } else { on.insert(p.id) }
+        play(on.contains(p.id) ? "on" : "off")
+    }
+
+    func apply() {
+        guard !busy else { return }
+        busy = true
+        fail = nil
+        done = false
+        let list = patches
+        let wanted = on
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            var errors: [String] = []
+
+            for p in list where !wanted.contains(p.id) && VXApply.isOn(p.file) {
+                do { try VXApply.restore(p.file) } catch { errors.append(p.name) }
+            }
+
+            for p in list where wanted.contains(p.id) && !VXApply.isOn(p.file) {
+                if p.cat == .aimbot {
+                    for other in list where other.cat == .aimbot && other.id != p.id && VXApply.isOn(other.file) {
+                        try? VXApply.restore(other.file)
+                    }
+                }
+                do { try VXApply.apply(p.file) } catch { errors.append(p.name) }
+            }
+
+            DispatchQueue.main.async {
+                self.busy = false
+                self.syncState()
+                if errors.isEmpty {
+                    self.done = true
+                    self.play("on")
+                } else {
+                    self.fail = "falló: " + errors.joined(separator: " · ")
+                    self.play("off")
+                }
+            }
+        }
+    }
+
+    func openGame() {
+        for s in ["freefire://", "freefiremax://"] {
+            guard let u = URL(string: s) else { continue }
+            UIApplication.shared.open(u, options: [:], completionHandler: nil)
+            return
+        }
     }
 
     func play(_ n: String) {
@@ -376,6 +449,51 @@ struct VXPanel: View {
                 }
                 footer
             }
+
+            if s.busy {
+                Color.black.opacity(0.84).ignoresSafeArea()
+                VStack(spacing: 14) {
+                    ProgressView().tint(.white).scaleEffect(1.3)
+                    Text("APLICANDO")
+                        .font(.system(size: 13, weight: .black)).tracking(6)
+                        .foregroundStyle(VX.paper)
+                    Text("puede tardar")
+                        .font(.system(size: 9, weight: .heavy)).tracking(1)
+                        .foregroundStyle(VX.dim)
+                }
+            }
+
+            if s.done {
+                Color.black.opacity(0.88).ignoresSafeArea()
+                VStack(spacing: 16) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 30, weight: .black))
+                        .foregroundStyle(VX.green)
+                    Text("LISTO")
+                        .font(.system(size: 13, weight: .black)).tracking(6)
+                        .foregroundStyle(VX.paper)
+                    Button {
+                        s.done = false
+                        s.openGame()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "gamecontroller.fill").font(.system(size: 11, weight: .bold))
+                            Text("ABRIR FREE FIRE").font(.system(size: 11, weight: .black)).tracking(2)
+                        }
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 14)
+                        .background(VX.green)
+                    }
+                    Button {
+                        s.done = false
+                    } label: {
+                        Text("SEGUIR AQUÍ")
+                            .font(.system(size: 9, weight: .black)).tracking(2)
+                            .foregroundStyle(VX.dim)
+                    }
+                }
+            }
         }
     }
 
@@ -460,8 +578,30 @@ struct VXPanel: View {
     }
 
     private var footer: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             Rectangle().fill(VX.line).frame(height: 1)
+
+            if let f = s.fail {
+                Text(f)
+                    .font(.system(size: 8, weight: .heavy))
+                    .tracking(0.6)
+                    .foregroundStyle(VX.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Button { s.apply() } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "bolt.fill").font(.system(size: 10, weight: .bold))
+                    Text("APLICAR").font(.system(size: 11, weight: .black)).tracking(3)
+                }
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(VX.green)
+                .opacity(s.busy ? 0.5 : 1)
+            }
+            .disabled(s.busy)
+
             HStack {
                 Text("\(s.on.count) ACTIVOS")
                     .font(.system(size: 8, weight: .black)).tracking(2)
