@@ -2,6 +2,7 @@
 #import <objc/runtime.h>
 
 extern UIViewController *VXMakePanel(void);
+extern void VXGateInstall(void);
 
 static UIWindow *vxWin;
 static UIWindow *vxCover;
@@ -114,6 +115,8 @@ static void vx_watch(int n) {
 
 __attribute__((constructor))
 static void vx_init(void) {
+    VXGateInstall();
+
     Method m = class_getInstanceMethod([UIWindow class], @selector(makeKeyAndVisible));
     if (m) {
         vxOrigMKAV = (void (*)(id, SEL))method_getImplementation(m);
