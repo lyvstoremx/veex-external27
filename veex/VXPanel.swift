@@ -16,6 +16,10 @@ struct VXKeyEntry: Decodable {
     let exp: String?
 }
 
+struct VXVerifyError: LocalizedError {
+    var errorDescription: String? { "no quedó escrito" }
+}
+
 enum VXCat: String, CaseIterable, Identifiable {
     case visual = "PRUEBA VISUAL"
     case holo = "HOLOGRAMAS"
@@ -153,7 +157,7 @@ final class VXStore: ObservableObject {
 
     func note(_ id: String) -> String? {
         if id == "balas" || id == "holoarm" { return "bajo tu propio riesgo" }
-        if id == "guest" { return "apagar después" }
+        if id == "guest" { return "no jugar con el encendido" }
         return nil
     }
 
@@ -269,7 +273,15 @@ final class VXStore: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 for o in others { try VXApply.restore(o.file) }
-                if target { try VXApply.apply(p.file) } else { try VXApply.restore(p.file) }
+                if target {
+                    try VXApply.apply(p.file)
+                    guard VXApply.isOn(p.file) else {
+                        try? VXApply.restore(p.file)
+                        throw VXVerifyError()
+                    }
+                } else {
+                    try VXApply.restore(p.file)
+                }
 
                 DispatchQueue.main.async {
                     self.busy = nil
@@ -277,12 +289,34 @@ final class VXStore: ObservableObject {
                 }
             } catch {
                 let n = p.name
+                let m = (error as? LocalizedError)?.errorDescription ?? "falló"
                 DispatchQueue.main.async {
                     self.busy = nil
-                    self.fail = "falló: " + n
+                    self.fail = "\(n) · \(m)"
                     self.syncState()
                     self.play("off")
                 }
+            }
+        }
+    }
+
+    func restoreAll() {
+        guard busy == nil else { return }
+        let list = patches
+        busy = "*"
+        fail = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            var bad = 0
+            for p in list where VXApply.isOn(p.file) {
+                do { try VXApply.restore(p.file) } catch { bad += 1 }
+            }
+            DispatchQueue.main.async {
+                self.busy = nil
+                self.on = []
+                self.syncState()
+                if bad > 0 { self.fail = "fallaron \(bad)" }
+                self.play(bad > 0 ? "off" : "on")
             }
         }
     }
@@ -373,10 +407,10 @@ struct VXDoor: View {
                             Circle()
                                 .fill(vxIOSSupported() ? VX.green : VX.red)
                                 .frame(width: 6, height: 6)
-                            Text("\(vxIOSLabel()) · \(vxIOSSupported() ? "SOPORTADO" : "NO SOPORTADO")")
+                            Text("\(vxIOSLabel()) · \(vxIOSupported() ? "SOPORTADO" : "NO SOPORTADO")")
                                 .font(.system(size: 8, weight: .black))
                                 .tracking(1.6)
-                                .foregroundStyle(vxIOSSupported() ? VX.green : VX.red)
+                                .foregroundStyle(vxIOSupported() ? VX.green : VX.red)
                         }
                     }
 
@@ -464,6 +498,8 @@ struct VXDoor: View {
 
 struct VXPanel: View {
     @ObservedObject var s: VXStore
+    @State private var diag = false
+    @State private var confirmAll = false
 
     var body: some View {
         ZStack {
@@ -484,6 +520,23 @@ struct VXPanel: View {
                             ForEach(s.patches.filter { $0.cat == s.cat }) { p in
                                 row(p)
                             }
+                            if s.cat == .extra {
+                                Button { confirmAll = true } label: {
+                                    HStack(spacing: 7) {
+                                        Image(systemName: "arrow.uturn.backward")
+                                            .font(.system(size: 9, weight: .bold))
+                                        Text("RESTAURAR TODO")
+                                            .font(.system(size: 9, weight: .black))
+                                            .tracking(2)
+                                    }
+                                    .foregroundStyle(VX.red)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 11)
+                                    .overlay(Rectangle().stroke(VX.red, lineWidth: 1))
+                                }
+                                .disabled(s.busy != nil)
+                                .padding(.top, 4)
+                            }
                         }
                         .padding(.horizontal, 14)
                         .padding(.top, 4)
@@ -491,15 +544,56 @@ struct VXPanel: View {
                 }
                 footer
             }
+
+            if diag {
+                ZStack {
+                    Color.black.opacity(0.96).ignoresSafeArea()
+                    VStack(spacing: 10) {
+                        HStack {
+                            Text("DIAGNÓSTICO")
+                                .font(.system(size: 10, weight: .black))
+                                .tracking(4)
+                                .foregroundStyle(VX.red)
+                            Spacer()
+                            Button {
+                                withAnimation(.easeOut(duration: 0.12)) { diag = false }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 12, weight: .black))
+                                    .foregroundStyle(VX.dim)
+                                    .frame(width: 32, height: 32)
+                                    .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
+                            }
+                        }
+                        .padding(.horizontal, 16)
+
+                        ScrollView {
+                            VXEngineCard().padding(.horizontal, 16)
+                        }
+                    }
+                    .padding(.top, 18)
+                    .padding(.bottom, 20)
+                }
+            }
         }
         .onAppear { s.startWatch() }
         .onDisappear { s.stopWatch() }
+        .alert("RESTAURAR TODO", isPresented: $confirmAll) {
+            Button("Restaurar", role: .destructive) { s.restoreAll() }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Devuelve todos los parches y deja el juego limpio.")
+        }
     }
 
     private var header: some View {
         VStack(spacing: 12) {
             HStack(spacing: 9) {
                 VXMark(size: 18)
+                    .onLongPressGesture(minimumDuration: 3) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        withAnimation(.easeOut(duration: 0.12)) { diag = true }
+                    }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("EXTERNAL").font(.system(size: 10, weight: .black)).tracking(5).foregroundStyle(VX.paper)
                     Text("BY LEVI").font(.system(size: 7, weight: .heavy)).tracking(3).foregroundStyle(VX.red)
@@ -582,17 +676,18 @@ struct VXPanel: View {
                 ZStack {
                     if working {
                         ProgressView()
-                            .tint(active ? .black : .white)
+                            .tint(active ? .black : VX.paper)
                             .scaleEffect(0.7)
                     } else {
                         Text(active ? "ON" : "OFF")
                             .font(.system(size: 9, weight: .black))
                             .tracking(2)
-                            .foregroundStyle(active ? .black : .white)
+                            .foregroundStyle(active ? .black : VX.paper)
                     }
                 }
                 .frame(width: 56, height: 30)
-                .background(active ? VX.green : VX.red)
+                .background(active ? VX.green : VX.slab)
+                .overlay(Rectangle().stroke(active ? .clear : VX.line, lineWidth: 1))
             }
             .disabled(s.busy != nil)
         }
@@ -608,7 +703,7 @@ struct VXPanel: View {
             if s.on.contains("guest") {
                 HStack(spacing: 6) {
                     Circle().fill(VX.red).frame(width: 5, height: 5)
-                    Text("RESET GUEST ACTIVO · APÁGALO DESPUÉS DE RESTAURAR")
+                    Text("RESET GUEST ACTIVO · RESTAURA TU CUENTA Y APÁGALO")
                         .font(.system(size: 8, weight: .black))
                         .tracking(1)
                         .foregroundStyle(VX.red)
