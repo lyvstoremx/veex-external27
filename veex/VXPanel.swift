@@ -3,18 +3,25 @@ import UIKit
 
 // MARK: - Modelo
 
-enum VXGroup: String {
-    case aim = "AIMBOTS"
-    case visual = "VISUALES"
-    case util = "UTILIDAD"
+enum VXGroup {
+    case aim, visual, util
+
+    var label: String {
+        switch self {
+        case .aim: return "AIMBOTS"
+        case .visual: return "VISUALES"
+        case .util: return "UTILIDAD"
+        }
+    }
 }
 
 struct VXItem: Identifiable, Equatable {
     let id: String
     let title: String
     let detail: String
+    let file: String
     let group: VXGroup
-    var file: String { id + ".3105" }
+    var autoOff: Bool = false
 }
 
 // MARK: - Estado
@@ -22,13 +29,13 @@ struct VXItem: Identifiable, Equatable {
 final class VXStore: ObservableObject {
 
     static let catalog: [VXItem] = [
-        VXItem(id: "aim_drag",        title: "AIM DRAG",        detail: "Arrastre pegado al enemigo",   group: .aim),
-        VXItem(id: "aim_drag_antena", title: "AIM DRAG ANTENA", detail: "Arrastre sobre la cabeza",     group: .aim),
-        VXItem(id: "aim_pecho",       title: "AIM PECHO",       detail: "Arrastre al torso",            group: .aim),
-        VXItem(id: "holo_personaje",  title: "HOLOGRAMA PERSONAJE", detail: "Holograma en el modelo",   group: .visual),
-        VXItem(id: "holo_armas",      title: "HOLOGRAMA ARMAS", detail: "Holograma en el arma",         group: .visual),
-        VXItem(id: "balas_magicas",   title: "BALAS MÁGICAS",   detail: "Trazadoras visibles",          group: .visual),
-        VXItem(id: "reset_guest",     title: "RESET GUEST",     detail: "Limpia el invitado",           group: .util)
+        VXItem(id: "aim_drag",        title: "AIM DRAG",        detail: "arrastre pegado al enemigo", file: "aim_drag.3105",        group: .aim),
+        VXItem(id: "aim_drag_antena", title: "AIM DRAG ANTENA", detail: "arrastre sobre la cabeza",   file: "aim_drag_antena.3105", group: .aim),
+        VXItem(id: "aim_pecho",       title: "AIM PECHO",       detail: "arrastre al torso",          file: "aim_pecho.3105",       group: .aim),
+        VXItem(id: "holo_personaje",  title: "HOLOGRAMA PERSONAJE", detail: "holograma en el modelo",  file: "holo_personaje.3105",  group: .visual),
+        VXItem(id: "holo_armas",      title: "HOLOGRAMA ARMAS", detail: "holograma en el arma",       file: "holo_armas.3105",      group: .visual),
+        VXItem(id: "balas_magicas",   title: "BALAS MÁGICAS",   detail: "trazadoras visibles",        file: "balas_magicas.3105",   group: .visual),
+        VXItem(id: "reset_guest",     title: "RESET GUEST",     detail: "limpia el invitado y se apaga solo", file: "Reset Guest.3105", group: .util, autoOff: true)
     ]
 
     @Published var items: [VXItem] = VXStore.catalog
@@ -41,8 +48,8 @@ final class VXStore: ObservableObject {
 
     static func syncNow() -> Set<String> {
         var live: Set<String> = []
-        for item in catalog {
-            if (try? VXApply.isOn(item.file)) ?? false { live.insert(item.id) }
+        for item in catalog where VXApply.isOn(item.file) {
+            live.insert(item.id)
         }
         return live
     }
@@ -81,11 +88,26 @@ final class VXStore: ObservableObject {
             do {
                 for old in exclusivos { try VXApply.restore(old.file) }
                 if target { try VXApply.apply(item.file) } else { try VXApply.restore(item.file) }
-                let live = VXStore.syncNow()
+
+                var live = VXStore.syncNow()
+
+                if target && item.autoOff {
+                    Thread.sleep(forTimeInterval: 1.4)
+                    try? VXApply.restore(item.file)
+                    live = VXStore.syncNow()
+                }
+
+                let aviso: String
+                if target {
+                    aviso = item.autoOff ? "\(item.title) hecho." : "\(item.title) activo. Abre Free Fire."
+                } else {
+                    aviso = "\(item.title) restaurado."
+                }
+
                 DispatchQueue.main.async {
                     self.on = live
                     self.busy = nil
-                    self.note = target ? "\(item.title) activo. Abre Free Fire." : "\(item.title) restaurado."
+                    self.note = aviso
                 }
             } catch let err {
                 let msg = String(describing: err)
@@ -123,24 +145,27 @@ struct VXPanel: View {
 
     @StateObject private var store = VXStore()
 
-    private let fondo = Color(red: 0.05, green: 0.06, blue: 0.09)
-    private let carta = Color(red: 0.10, green: 0.11, blue: 0.15)
-    private let acento = Color(red: 0.35, green: 0.85, blue: 0.65)
-
     var body: some View {
         ZStack {
-            fondo.ignoresSafeArea()
+            VX.ink.ignoresSafeArea()
+            VXSmoke().ignoresSafeArea()
+            VXNoise().ignoresSafeArea()
+
             VStack(spacing: 0) {
                 encabezado
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 18) {
+                    VStack(spacing: 14) {
+                        VXPreview(s: store)
+                            .frame(height: 208)
+                            .vxCard(VX.ink)
                         seccion(.aim)
                         seccion(.visual)
                         seccion(.util)
+                        VXEngineCard()
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .padding(.bottom, 20)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 10)
+                    .padding(.bottom, 18)
                 }
                 pie
             }
@@ -150,47 +175,43 @@ struct VXPanel: View {
     }
 
     private var encabezado: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("VEEX")
-                    .font(.system(size: 26, weight: .heavy, design: .rounded))
-                    .foregroundColor(.white)
-                Text("3105 · iOS 17 – 27.2")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.gray)
-            }
+        HStack(spacing: 12) {
+            VXMark(size: 20)
             Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
+            VStack(alignment: .trailing, spacing: 1) {
                 Text("\(store.on.count)")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundColor(acento)
+                    .font(.system(size: 18, weight: .black, design: .monospaced))
+                    .foregroundStyle(VX.red)
                 Text("ACTIVOS")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(.gray)
+                    .font(.system(size: 8, weight: .black))
+                    .tracking(1.6)
+                    .foregroundStyle(VX.dim)
             }
             Button {
                 store.refresh()
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.gray)
-                    .padding(8)
-                    .background(carta)
-                    .clipShape(Circle())
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(VX.paper)
+                    .frame(width: 32, height: 32)
+                    .background(VX.slab)
+                    .overlay(Rectangle().stroke(VX.line, lineWidth: 1))
             }
-            .padding(.leading, 10)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 18)
-        .padding(.bottom, 14)
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
     }
 
     private func seccion(_ group: VXGroup) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(group.rawValue)
-                .font(.system(size: 10, weight: .heavy))
-                .foregroundColor(.gray)
-                .padding(.leading, 4)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(group.label)
+                    .font(.system(size: 9, weight: .black))
+                    .tracking(3)
+                    .foregroundStyle(VX.dim)
+                Rectangle().fill(VX.line).frame(height: 1)
+            }
             ForEach(store.items.filter { $0.group == group }) { item in
                 fila(item)
             }
@@ -200,69 +221,53 @@ struct VXPanel: View {
     private func fila(_ item: VXItem) -> some View {
         let activo = store.on.contains(item.id)
         let cargando = store.busy == item.id
-        return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        return HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(item.title)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.white)
+                    .font(.system(size: 12, weight: .black))
+                    .tracking(1.1)
+                    .foregroundStyle(VX.paper)
                 Text(item.detail)
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(VX.dim)
             }
             Spacer()
             if cargando {
                 ProgressView()
-                    .scaleEffect(0.7)
+                    .scaleEffect(0.6)
+                    .tint(VX.red)
+                    .frame(width: 46)
             } else {
                 ZStack(alignment: activo ? .trailing : .leading) {
-                    Capsule()
-                        .fill(activo ? acento : Color(white: 0.25))
-                        .frame(width: 44, height: 25)
-                    Circle()
-                        .fill(.white)
-                        .frame(width: 19, height: 19)
-                        .padding(.horizontal, 3)
+                    Rectangle()
+                        .fill(activo ? VX.red : Color(white: 0.18))
+                        .frame(width: 46, height: 24)
+                    Rectangle()
+                        .fill(VX.paper)
+                        .frame(width: 20, height: 18)
+                        .padding(.horizontal, 2)
                 }
+                .overlay(Rectangle().stroke(activo ? VX.red : VX.line, lineWidth: 1))
             }
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 11)
-        .background(carta)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(activo ? acento.opacity(0.45) : Color.clear, lineWidth: 1)
-        )
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(VX.slab)
+        .overlay(Rectangle().stroke(activo ? VX.red : VX.line, lineWidth: 1))
         .contentShape(Rectangle())
         .onTapGesture { store.toggle(item) }
     }
 
     private var pie: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 7) {
             if let error = store.error {
-                Text(error)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(Color(red: 1, green: 0.42, blue: 0.42))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(8)
-                    .background(Color(red: 0.16, green: 0.07, blue: 0.09))
-                    .clipShape(RoundedRectangle(cornerRadius: 9))
-                    .onTapGesture { store.dismissError() }
+                banner(error, VX.red)
             } else if let note = store.note {
-                Text(note)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(acento)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(8)
-                    .background(Color(red: 0.06, green: 0.14, blue: 0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 9))
-                    .onTapGesture { store.dismissError() }
+                banner(note, VX.green)
             } else {
-                Text("Cierra Free Fire antes de mover un switch")
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray)
+                Text("cierra free fire antes de mover un switch")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(VX.dim)
             }
 
             Button {
@@ -270,20 +275,44 @@ struct VXPanel: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .black))
                     Text("ABRIR FREE FIRE")
-                        .font(.system(size: 13, weight: .heavy))
+                        .font(.system(size: 12, weight: .black))
+                        .tracking(2)
                 }
-                .foregroundColor(Color(red: 0.03, green: 0.09, blue: 0.07))
+                .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
-                .background(acento)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.vertical, 12)
+                .background(VX.red)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 24)
-        .background(fondo)
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 22)
+        .background(VX.ink)
+        .vxHair()
     }
+
+    private func banner(_ texto: String, _ color: Color) -> some View {
+        Text(texto)
+            .font(.system(size: 9, weight: .black))
+            .tracking(0.6)
+            .foregroundStyle(color)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(7)
+            .background(VX.slab)
+            .overlay(Rectangle().stroke(color, lineWidth: 1))
+            .onTapGesture { store.dismissError() }
+    }
+}
+
+// MARK: - Entrada para main.m
+
+@_cdecl("VXMakePanel")
+public func VXMakePanel() -> UIViewController {
+    let host = UIHostingController(rootView: VXPanel())
+    host.view.backgroundColor = .black
+    host.view.isOpaque = true
+    return host
 }
