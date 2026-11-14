@@ -102,13 +102,7 @@ final class VXStore: ObservableObject {
     private var lastOK: Date?
 
     var iosOK: Bool {
-        let v = ProcessInfo.processInfo.operatingSystemVersion
-        let m = v.majorVersion, n = v.minorVersion, p = v.patchVersion
-        if m == 17 { return n <= 7 }
-        if m == 18 { return n < 7 || (n == 7 && p <= 10) }
-        if m == 26 { return n < 7 || (n == 7 && p <= 2) }
-        if m == 27 { return n < 2 || (n == 2 && p == 0) }
-        return false
+        VXMCM.available || VXWorse.present
     }
 
     var iosLabel: String {
