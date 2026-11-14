@@ -1,6 +1,6 @@
 //
 //  VXShim.swift
-//  Contenedores y claves. El permiso se resuelve por intentos y se verifica escribiendo.
+//  Contenedores y claves. Réplica del puente MCM de 3105.
 //
 
 import Foundation
@@ -92,7 +92,7 @@ enum VXMCM {
     )
 
     private static var keep: [UnsafeMutableRawPointer] = []
-    private static var best: (cls: UInt64, part: UInt64, flags: UInt64, group: String?, domain: Bool)?
+    private static var best: (part: UInt64, flags: UInt64, cls: UInt64, group: String?)?
 
     private static func sym<T>(_ name: String) -> T? {
         guard let lib, let p = dlsym(lib, name) else { return nil }
@@ -106,7 +106,8 @@ enum VXMCM {
 
     static var available: Bool {
         let f: Create? = sym("container_query_create")
-        return lib != nil && f != nil
+        let c: GetPtr? = sym("container_object_copy")
+        return lib != nil && f != nil && c != nil
     }
 
     private static func detail(_ q: UnsafeMutableRawPointer) -> String {
@@ -166,6 +167,16 @@ enum VXMCM {
         return p
     }
 
+    static func abrir(_ path: String) -> Bool {
+        let fd = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        guard fd >= 0 else {
+            log("vx: open raíz falló errno \(errno)")
+            return false
+        }
+        close(fd)
+        return true
+    }
+
     private static func attempt(
         label: String,
         cls: UInt64,
@@ -176,7 +187,9 @@ enum VXMCM {
         domain: String?
     ) -> Int64 {
         guard let q = build(cls: cls, identifier: identifier, group: group, flags: flags, part: part, domain: domain),
-              let getSingle: GetPtr = sym("container_query_get_single_result") else {
+              let getSingle: GetPtr = sym("container_query_get_single_result"),
+              let copy: GetPtr = sym("container_object_copy"),
+              let activate: Activate = sym("container_object_sandbox_extension_activate") else {
             log("vx: \(label) sin consulta")
             return -1
         }
@@ -184,46 +197,46 @@ enum VXMCM {
             log("vx: \(label) daemon sin resultado · \(detail(q))")
             return -1
         }
+        guard let copia = copy(obj) else {
+            log("vx: \(label) sin copia")
+            return -1
+        }
 
         if let copyToken: CopyToken = sym("container_copy_sandbox_token"),
-           let consume: Consume = def("sandbox_extension_consume"),
-           let token = copyToken(obj) {
-            let h = consume(token)
+           let token = copyToken(copia) {
+            let presente = token[0] != 0
+            log("vx: \(label) token \(presente ? "presente" : "vacío")")
+            if presente, let consume: Consume = def("sandbox_extension_consume") {
+                let h = consume(token)
+                log("vx: \(label) consume = \(h)")
+                if h >= 0 {
+                    free(token)
+                    keep.append(copia)
+                    keep.append(q)
+                    return h
+                }
+            }
             free(token)
-            log("vx: \(label) consume = \(h)")
-            if h >= 0 {
-                keep.append(q)
-                return h
+
+            if presente {
+                let ok = activate(copia, false)
+                log("vx: \(label) activate = \(ok)")
+                if ok {
+                    keep.append(copia)
+                    keep.append(q)
+                    return 1
+                }
             }
         } else {
             log("vx: \(label) sin token")
         }
 
-        guard let activate: Activate = sym("container_object_sandbox_extension_activate"),
-              let copy: GetPtr = sym("container_object_copy") else {
-            log("vx: \(label) sin activate")
-            return -1
-        }
-
-        if let copyObj = copy(obj) {
-            for modo in [false, true] {
-                let ok = activate(copyObj, modo)
-                log("vx: \(label) activate(copia,\(modo)) = \(ok)")
-                if ok {
-                    keep.append(copyObj)
-                    keep.append(q)
-                    return 1
-                }
-            }
-        }
-
-        for modo in [false, true] {
-            let ok = activate(obj, modo)
-            log("vx: \(label) activate(obj,\(modo)) = \(ok)")
-            if ok {
-                keep.append(q)
-                return 1
-            }
+        let ok = activate(copia, false)
+        log("vx: \(label) activate sin token = \(ok)")
+        if ok {
+            keep.append(copia)
+            keep.append(q)
+            return 1
         }
 
         return -1
@@ -237,34 +250,27 @@ enum VXMCM {
 
     static func grant(_ path: String, bundle: String = "") -> Int64 {
         let dom = domain(path)
-        let grupos = [
-            "systemgroup.com.apple.mobilegestaltcache",
-            "systemgroup.com.apple.configurationprofiles"
-        ]
+        let gestalt = "systemgroup.com.apple.mobilegestaltcache"
 
         var tries: [(String, UInt64, String, Bool, UInt64, UInt64, String?)] = []
 
         if let b = best {
-            let id = b.group ?? bundle
-            tries.append(("mejor", b.cls, id, b.group != nil, b.flags, b.part, b.domain ? dom : nil))
+            tries.append(("mejor", b.cls, b.group ?? bundle, b.group != nil, b.flags, b.part, b.group != nil ? dom : nil))
         }
 
         if !bundle.isEmpty {
-            for part in [UInt64(3), 0, 2] {
-                for flags in [UInt64(0x900000000), 0x100000000, 0x8000000000] {
-                    tries.append(("bundle-p\(part)-f\(flags)-d", 2, bundle, false, flags, part, dom))
-                    tries.append(("bundle-p\(part)-f\(flags)-n", 2, bundle, false, flags, part, nil))
-                }
+            for part in [UInt64(0), 3, 1] {
+                tries.append(("bundle-p\(part)-f900000000", 2, bundle, false, 0x900000000, part, nil))
+                tries.append(("bundle-p\(part)-f900000000-d", 2, bundle, false, 0x900000000, part, dom))
+            }
+            for flags in [UInt64(0x100000000), 0x8000000000] {
+                tries.append(("bundle-p0-f\(flags)", 2, bundle, false, flags, 0, nil))
             }
         }
 
-        for grupo in grupos {
-            for part in [UInt64(3), 0] {
-                for flags in [UInt64(0x8000000000), 0x900000000, 0x100000000] {
-                    tries.append(("gestalt-p\(part)-f\(flags)-d", 13, grupo, true, flags, part, dom))
-                    tries.append(("gestalt-p\(part)-f\(flags)-n", 13, grupo, true, flags, part, nil))
-                }
-            }
+        for part in [UInt64(0), 3] {
+            tries.append(("gestalt-p\(part)-f900000000", 13, gestalt, true, 0x900000000, part, dom))
+            tries.append(("gestalt-p\(part)-f8000000000", 13, gestalt, true, 0x8000000000, part, dom))
         }
 
         var primero: Int64 = -1
@@ -272,19 +278,21 @@ enum VXMCM {
 
         for t in tries {
             n += 1
-            if n > 120 { break }
+            if n > 40 { break }
             let h = attempt(label: t.0, cls: t.1, identifier: t.2, group: t.3, flags: t.4, part: t.5, domain: t.6)
             guard h >= 0 else { continue }
 
-            usleep(60_000)
-            if VXContainers.writeTest(path) == "ok" {
-                best = (t.1, t.5, t.4, t.3 ? t.2 : nil, t.6 != nil)
-                log("vx: combinación ganadora \(t.0)")
+            usleep(40_000)
+            let escribe = VXContainers.writeTest(path) == "ok"
+
+            if escribe && abrir(path) {
+                best = (t.5, t.4, t.1, t.3 ? t.2 : nil)
+                log("vx: ganadora \(t.0)")
                 if primero >= 0 { release(primero) }
                 return h
             }
 
-            log("vx: \(t.0) concedió sin escribir")
+            log("vx: \(t.0) concedió, escritura \(escribe ? "ok" : "falló")")
             if primero < 0 {
                 primero = h
             } else {
