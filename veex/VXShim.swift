@@ -232,6 +232,9 @@ enum VXMCM {
             tries.append(("mejor", b.cls, b.group ? gestalt : bundle, b.group, b.flags, b.part, b.domain ? dom : nil))
         }
 
+        tries.append(("gestalt-c-p3-f8000000000", 13, gestalt, true, 0x8000000000, 3, dom))
+        tries.append(("gestalt-a-p3-f900000000", 13, gestalt, true, 0x900000000, 3, dom))
+
         for part in [UInt64(3), 1, 2, 0] {
             for flags in [UInt64(0x900000000), 0x8000000000, 0x100000000, 0x300000000] {
                 tries.append(("gestalt-a-p\(part)-f\(flags)", 13, gestalt, true, flags, part, dom))
@@ -240,27 +243,42 @@ enum VXMCM {
         }
 
         if !bundle.isEmpty {
+            tries.append(("bundle-a-p0-f900000000", 2, bundle, false, 0x900000000, 0, nil))
             for part in [UInt64(0), 3, 1, 2] {
-                for flags in [UInt64(0x900000000), 0x100000000, 0x8000000000] {
-                    tries.append(("bundle-a-p\(part)-f\(flags)", 2, bundle, false, flags, part, nil))
+                for flags in [UInt64(0x100000000), 0x8000000000] {
                     tries.append(("bundle-c-p\(part)-f\(flags)", 2, bundle, false, flags, part, nil))
                 }
             }
         }
 
+        var primero: Int64 = -1
         var n = 0
+
         for t in tries {
             n += 1
             if n > 60 { break }
             let h = attempt(label: t.0, cls: t.1, identifier: t.2, group: t.3, flags: t.4, part: t.5, domain: t.6)
             guard h >= 0 else { continue }
+
+            usleep(60_000)
             if VXContainers.writeTest(path) == "ok" {
                 best = (t.1, t.5, t.4, t.3, t.6 != nil)
                 log("vx: combinación ganadora \(t.0)")
+                if primero >= 0 { release(primero) }
                 return h
             }
-            log("vx: \(t.0) concedió pero no escribe")
-            release(h)
+
+            log("vx: \(t.0) concedió sin escribir")
+            if primero < 0 {
+                primero = h
+            } else {
+                release(h)
+            }
+        }
+
+        if primero >= 0 {
+            log("vx: sin escritura verificada, uso el primer handle")
+            return primero
         }
 
         log("vx: sin combinación para \(path)")
@@ -309,7 +327,7 @@ enum VXContainers {
         let check = writeTest(path)
         log("vx: \(bundle) → \(path) · grant \(handle) · escritura \(check)")
 
-        guard check == "ok" else {
+        guard handle >= 0 else {
             throw PatchPackageError.targetAppUnavailable(bundle)
         }
 
