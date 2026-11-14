@@ -11,7 +11,7 @@ import Darwin
 import MachO
 
 func log(_ msg: String) {
-    guard let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+    guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
     let url = dir.appendingPathComponent("veex.log")
     let line = Data(("[\(Date())] " + msg + "\n").utf8)
     if let h = try? FileHandle(forWritingTo: url) {
@@ -195,6 +195,15 @@ enum VXContainers {
         let url = PatchPathValidator.canonicalFileURL(URL(fileURLWithPath: path, isDirectory: true))
         roots[bundle] = url
         return url
+    }
+
+    static func writeTest(_ path: String) -> String {
+        let file = path + "/.veex-probe"
+        if FileManager.default.createFile(atPath: file, contents: Data("x".utf8)) {
+            try? FileManager.default.removeItem(atPath: file)
+            return "ok"
+        }
+        return "errno \(errno)"
     }
 }
 
