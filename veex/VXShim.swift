@@ -92,7 +92,7 @@ enum VXMCM {
     )
 
     private static var keep: [UnsafeMutableRawPointer] = []
-    private static var best: (cls: UInt64, part: UInt64, flags: UInt64, group: Bool, domain: Bool)?
+    private static var best: (cls: UInt64, part: UInt64, flags: UInt64, group: String?, domain: Bool)?
 
     private static func sym<T>(_ name: String) -> T? {
         guard let lib, let p = dlsym(lib, name) else { return nil }
@@ -196,21 +196,34 @@ enum VXMCM {
                 return h
             }
         } else {
-            log("vx: \(label) sin token o sin consume")
+            log("vx: \(label) sin token")
         }
 
-        if let copy: GetPtr = sym("container_object_copy"),
-           let activate: Activate = sym("container_object_sandbox_extension_activate"),
-           let copyObj = copy(obj) {
-            let ok = activate(copyObj, false)
-            log("vx: \(label) activate = \(ok)")
+        guard let activate: Activate = sym("container_object_sandbox_extension_activate"),
+              let copy: GetPtr = sym("container_object_copy") else {
+            log("vx: \(label) sin activate")
+            return -1
+        }
+
+        if let copyObj = copy(obj) {
+            for modo in [false, true] {
+                let ok = activate(copyObj, modo)
+                log("vx: \(label) activate(copia,\(modo)) = \(ok)")
+                if ok {
+                    keep.append(copyObj)
+                    keep.append(q)
+                    return 1
+                }
+            }
+        }
+
+        for modo in [false, true] {
+            let ok = activate(obj, modo)
+            log("vx: \(label) activate(obj,\(modo)) = \(ok)")
             if ok {
-                keep.append(copyObj)
                 keep.append(q)
                 return 1
             }
-        } else {
-            log("vx: \(label) sin activate")
         }
 
         return -1
@@ -224,29 +237,32 @@ enum VXMCM {
 
     static func grant(_ path: String, bundle: String = "") -> Int64 {
         let dom = domain(path)
-        let gestalt = "systemgroup.com.apple.mobilegestaltcache"
+        let grupos = [
+            "systemgroup.com.apple.mobilegestaltcache",
+            "systemgroup.com.apple.configurationprofiles"
+        ]
 
         var tries: [(String, UInt64, String, Bool, UInt64, UInt64, String?)] = []
 
         if let b = best {
-            tries.append(("mejor", b.cls, b.group ? gestalt : bundle, b.group, b.flags, b.part, b.domain ? dom : nil))
-        }
-
-        tries.append(("gestalt-c-p3-f8000000000", 13, gestalt, true, 0x8000000000, 3, dom))
-        tries.append(("gestalt-a-p3-f900000000", 13, gestalt, true, 0x900000000, 3, dom))
-
-        for part in [UInt64(3), 1, 2, 0] {
-            for flags in [UInt64(0x900000000), 0x8000000000, 0x100000000, 0x300000000] {
-                tries.append(("gestalt-a-p\(part)-f\(flags)", 13, gestalt, true, flags, part, dom))
-                tries.append(("gestalt-c-p\(part)-f\(flags)", 13, gestalt, true, flags, part, dom))
-            }
+            let id = b.group ?? bundle
+            tries.append(("mejor", b.cls, id, b.group != nil, b.flags, b.part, b.domain ? dom : nil))
         }
 
         if !bundle.isEmpty {
-            tries.append(("bundle-a-p0-f900000000", 2, bundle, false, 0x900000000, 0, nil))
-            for part in [UInt64(0), 3, 1, 2] {
-                for flags in [UInt64(0x100000000), 0x8000000000] {
-                    tries.append(("bundle-c-p\(part)-f\(flags)", 2, bundle, false, flags, part, nil))
+            for part in [UInt64(3), 0, 2] {
+                for flags in [UInt64(0x900000000), 0x100000000, 0x8000000000] {
+                    tries.append(("bundle-p\(part)-f\(flags)-d", 2, bundle, false, flags, part, dom))
+                    tries.append(("bundle-p\(part)-f\(flags)-n", 2, bundle, false, flags, part, nil))
+                }
+            }
+        }
+
+        for grupo in grupos {
+            for part in [UInt64(3), 0] {
+                for flags in [UInt64(0x8000000000), 0x900000000, 0x100000000] {
+                    tries.append(("gestalt-p\(part)-f\(flags)-d", 13, grupo, true, flags, part, dom))
+                    tries.append(("gestalt-p\(part)-f\(flags)-n", 13, grupo, true, flags, part, nil))
                 }
             }
         }
@@ -256,13 +272,13 @@ enum VXMCM {
 
         for t in tries {
             n += 1
-            if n > 60 { break }
+            if n > 120 { break }
             let h = attempt(label: t.0, cls: t.1, identifier: t.2, group: t.3, flags: t.4, part: t.5, domain: t.6)
             guard h >= 0 else { continue }
 
             usleep(60_000)
             if VXContainers.writeTest(path) == "ok" {
-                best = (t.1, t.5, t.4, t.3, t.6 != nil)
+                best = (t.1, t.5, t.4, t.3 ? t.2 : nil, t.6 != nil)
                 log("vx: combinación ganadora \(t.0)")
                 if primero >= 0 { release(primero) }
                 return h
@@ -294,13 +310,21 @@ enum VXMCM {
 enum VXContainers {
     private static var roots: [String: URL] = [:]
 
+    private static let carpetas = ["", "/Documents", "/Library", "/tmp", "/Library/Caches"]
+
     static func writeTest(_ path: String) -> String {
-        let file = path + "/.veex-probe"
-        if FileManager.default.createFile(atPath: file, contents: Data("x".utf8)) {
-            try? FileManager.default.removeItem(atPath: file)
-            return "ok"
+        var ultimo = "errno 0"
+        for c in carpetas {
+            let dir = path + c
+            guard FileManager.default.fileExists(atPath: dir) else { continue }
+            let file = dir + "/.veex-probe"
+            if FileManager.default.createFile(atPath: file, contents: Data("x".utf8)) {
+                try? FileManager.default.removeItem(atPath: file)
+                return "ok"
+            }
+            ultimo = "errno \(errno)"
         }
-        return "errno \(errno)"
+        return ultimo
     }
 
     static func resolve(_ bundle: String) throws -> URL {
