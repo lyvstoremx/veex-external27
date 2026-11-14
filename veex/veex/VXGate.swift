@@ -67,3 +67,8 @@ enum VXGate {
         for (n, h) in hits where patch(h) { log("vx: gate parcheado \(n)") }
     }
 }
+
+@_cdecl("VXGateInstall")
+public func VXGateInstall() {
+    VXGate.install()
+}
