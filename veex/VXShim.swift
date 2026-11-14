@@ -1,8 +1,6 @@
 //
 //  VXShim.swift
-//  Contenedores y claves.
-//  El permiso se resuelve por intentos y se verifica escribiendo:
-//  así funciona igual en 17, 18, 26 y 27 sin ramas por versión.
+//  Contenedores y claves. El permiso se resuelve por intentos y se verifica escribiendo.
 //
 
 import Foundation
@@ -167,7 +165,6 @@ enum VXMCM {
         return p
     }
 
-    /// Un intento: consulta, y del resultado saca token para consumir o activa el objeto.
     private static func attempt(
         label: String,
         cls: UInt64,
@@ -218,16 +215,18 @@ enum VXMCM {
         return -1
     }
 
-    static func grant(_ path: String, bundle: String) -> Int64 {
+    static func grant(_ path: String, bundle: String = "") -> Int64 {
         let domain = String(repeating: "..", count: 9) + path
         let gestalt = "systemgroup.com.apple.mobilegestaltcache"
 
-        let tries: [(String, UInt64, String, Bool, UInt64, UInt64, String?)] = [
+        var tries: [(String, UInt64, String, Bool, UInt64, UInt64, String?)] = [
             ("gestalt-consume", 13, gestalt, true, 0x8000000000, 3, domain),
-            ("gestalt-activate", 13, gestalt, true, 0x900000000, 3, domain),
-            ("bundle-activate", 2, bundle, false, 0x900000000, 0, nil),
-            ("bundle-consume", 2, bundle, false, 0x100000000, 0, nil)
+            ("gestalt-activate", 13, gestalt, true, 0x900000000, 3, domain)
         ]
+        if !bundle.isEmpty {
+            tries.append(("bundle-activate", 2, bundle, false, 0x900000000, 0, nil))
+            tries.append(("bundle-consume", 2, bundle, false, 0x100000000, 0, nil))
+        }
 
         for t in tries {
             let h = attempt(
@@ -285,9 +284,6 @@ enum VXContainers {
         let handle = VXMCM.grant(path, bundle: bundle)
         let check = writeTest(path)
         log("vx: \(bundle) → \(path) · grant \(handle) · escritura \(check)")
-        if check != "ok" {
-            log("vx: sin permiso de escritura en \(bundle)")
-        }
         return url
     }
 }
