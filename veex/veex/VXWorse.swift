@@ -1,11 +1,3 @@
-//
-//  VXWorse.swift
-//  Ruta de contenedores para iOS 27+. Solo se invoca si MCM falla.
-//
-
-import Foundation
-import Darwin
-
 enum VXWorse {
     private typealias S1 = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
     private typealias S2 = @convention(c) (UnsafePointer<CChar>, Int64) -> UnsafeMutablePointer<CChar>?
@@ -34,7 +26,7 @@ enum VXWorse {
     }
 
     static func path(_ bundle: String) -> String? {
-        guard present else { return nil }
+        guard present else { log("vx: sin símbolo worse"); return nil }
         let c = strdup(bundle)!
         defer { free(c) }
 
@@ -55,7 +47,7 @@ enum VXWorse {
     }
 
     static func grant(_ path: String) -> Int64 {
-        guard present else { return -1 }
+        guard present else { log("vx: sin símbolo worse"); return -1 }
         let c = strdup(path)!
         defer { free(c) }
 
