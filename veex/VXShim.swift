@@ -92,6 +92,7 @@ enum VXMCM {
     )
 
     private static var keep: [UnsafeMutableRawPointer] = []
+    private static var best: (cls: UInt64, part: UInt64, flags: UInt64, group: Bool, domain: Bool)?
 
     private static func sym<T>(_ name: String) -> T? {
         guard let lib, let p = dlsym(lib, name) else { return nil }
@@ -215,31 +216,54 @@ enum VXMCM {
         return -1
     }
 
+    private static func domain(_ path: String) -> String {
+        let depth = Bundle.main.bundlePath.split(separator: "/").count
+        let n = max(9, depth + 2)
+        return Array(repeating: "..", count: n).joined(separator: "/") + path
+    }
+
     static func grant(_ path: String, bundle: String = "") -> Int64 {
-        let domain = Array(repeating: "..", count: 9).joined(separator: "/") + path
+        let dom = domain(path)
         let gestalt = "systemgroup.com.apple.mobilegestaltcache"
 
-        var tries: [(String, UInt64, String, Bool, UInt64, UInt64, String?)] = [
-            ("gestalt-consume", 13, gestalt, true, 0x8000000000, 3, domain),
-            ("gestalt-activate", 13, gestalt, true, 0x900000000, 3, domain)
-        ]
-        if !bundle.isEmpty {
-            tries.append(("bundle-activate", 2, bundle, false, 0x900000000, 0, nil))
-            tries.append(("bundle-consume", 2, bundle, false, 0x100000000, 0, nil))
+        var tries: [(String, UInt64, String, Bool, UInt64, UInt64, String?)] = []
+
+        if let b = best {
+            tries.append(("mejor", b.cls, b.group ? gestalt : bundle, b.group, b.flags, b.part, b.domain ? dom : nil))
         }
 
-        for t in tries {
-            let h = attempt(
-                label: t.0,
-                cls: t.1,
-                identifier: t.2,
-                group: t.3,
-                flags: t.4,
-                part: t.5,
-                domain: t.6
-            )
-            if h >= 0 { return h }
+        for part in [UInt64(3), 1, 2, 0] {
+            for flags in [UInt64(0x900000000), 0x8000000000, 0x100000000, 0x300000000] {
+                tries.append(("gestalt-a-p\(part)-f\(flags)", 13, gestalt, true, flags, part, dom))
+                tries.append(("gestalt-c-p\(part)-f\(flags)", 13, gestalt, true, flags, part, dom))
+            }
         }
+
+        if !bundle.isEmpty {
+            for part in [UInt64(0), 3, 1, 2] {
+                for flags in [UInt64(0x900000000), 0x100000000, 0x8000000000] {
+                    tries.append(("bundle-a-p\(part)-f\(flags)", 2, bundle, false, flags, part, nil))
+                    tries.append(("bundle-c-p\(part)-f\(flags)", 2, bundle, false, flags, part, nil))
+                }
+            }
+        }
+
+        var n = 0
+        for t in tries {
+            n += 1
+            if n > 60 { break }
+            let h = attempt(label: t.0, cls: t.1, identifier: t.2, group: t.3, flags: t.4, part: t.5, domain: t.6)
+            guard h >= 0 else { continue }
+            if VXContainers.writeTest(path) == "ok" {
+                best = (t.1, t.5, t.4, t.3, t.6 != nil)
+                log("vx: combinación ganadora \(t.0)")
+                return h
+            }
+            log("vx: \(t.0) concedió pero no escribe")
+            release(h)
+        }
+
+        log("vx: sin combinación para \(path)")
         return -1
     }
 
@@ -274,9 +298,9 @@ enum VXContainers {
         }
 
         let url = PatchPathValidator.canonicalFileURL(URL(fileURLWithPath: path, isDirectory: true))
-        roots[bundle] = url
 
         if writeTest(path) == "ok" {
+            roots[bundle] = url
             log("vx: \(bundle) escribible sin extensión")
             return url
         }
@@ -284,6 +308,12 @@ enum VXContainers {
         let handle = VXMCM.grant(path, bundle: bundle)
         let check = writeTest(path)
         log("vx: \(bundle) → \(path) · grant \(handle) · escritura \(check)")
+
+        guard check == "ok" else {
+            throw PatchPackageError.targetAppUnavailable(bundle)
+        }
+
+        roots[bundle] = url
         return url
     }
 }
