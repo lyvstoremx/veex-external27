@@ -1,8 +1,8 @@
 //
 //  VXShim.swift
-//  Resolución de contenedor y claves para el motor.
-//  Los símbolos se buscan en la tabla del ejecutable, no con dlsym:
-//  el binario nuevo no los exporta.
+//  Contenedores y claves.
+//  Los contenedores se piden a libsystem_containermanager directamente:
+//  no dependemos de símbolos de la app.
 //
 
 import Foundation
@@ -25,6 +25,7 @@ func log(_ msg: String) {
 
 enum VXSym {
     static func find(_ name: String) -> UnsafeMutableRawPointer? {
+        if let p = dlsym(UnsafeMutableRawPointer(bitPattern: -2), name) { return p }
         guard let hdr = _dyld_get_image_header(0) else { return nil }
         let slide = _dyld_get_image_vmaddr_slide(0)
         let base = UnsafeRawPointer(hdr)
@@ -72,41 +73,127 @@ enum VXSym {
     }
 }
 
-enum VXContainers {
-    private typealias PathFn = @convention(c) (
-        UInt64, UnsafeMutableRawPointer, Bool, UnsafeMutablePointer<UnsafeMutableRawPointer?>?
-    ) -> UnsafeMutableRawPointer?
-    private typealias GrantFn = @convention(c) (UnsafeMutablePointer<CChar>, Bool, UnsafePointer<CChar>?, Bool) -> Int64
+enum VXMCM {
+    private typealias Create = @convention(c) () -> UnsafeMutableRawPointer?
+    private typealias SetU64 = @convention(c) (UnsafeMutableRawPointer, UInt64) -> Void
+    private typealias SetXPC = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void
+    private typealias SetDomain = @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void
+    private typealias GetPtr = @convention(c) (UnsafeMutableRawPointer) -> UnsafeMutableRawPointer?
+    private typealias GetStr = @convention(c) (UnsafeMutableRawPointer) -> UnsafePointer<CChar>?
+    private typealias CopyToken = @convention(c) (UnsafeMutableRawPointer) -> UnsafeMutablePointer<CChar>?
+    private typealias FreeFn = @convention(c) (UnsafeMutableRawPointer) -> Void
+    private typealias XpcStr = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
+    private typealias Consume = @convention(c) (UnsafePointer<CChar>) -> Int64
+    private typealias Release = @convention(c) (Int64) -> Int32
 
+    private static let lib: UnsafeMutableRawPointer? = dlopen(
+        "/usr/lib/system/libsystem_containermanager.dylib",
+        RTLD_NOW | RTLD_LOCAL
+    )
+
+    private static func sym<T>(_ name: String) -> T? {
+        guard let lib, let p = dlsym(lib, name) else { return nil }
+        return unsafeBitCast(p, to: T.self)
+    }
+
+    private static func def<T>(_ name: String) -> T? {
+        guard let p = dlsym(UnsafeMutableRawPointer(bitPattern: -2), name) else { return nil }
+        return unsafeBitCast(p, to: T.self)
+    }
+
+    static var available: Bool {
+        let f: Create? = sym("container_query_create")
+        return lib != nil && f != nil
+    }
+
+    private static func build(
+        cls: UInt64,
+        identifier: String,
+        group: Bool,
+        flags: UInt64,
+        part: UInt64,
+        domain: String?
+    ) -> UnsafeMutableRawPointer? {
+        guard let create: Create = sym("container_query_create"),
+              let setClass: SetU64 = sym("container_query_set_class"),
+              let setFlags: SetU64 = sym("container_query_operation_set_flags") else { return nil }
+        guard let q = create() else { return nil }
+
+        setClass(q, cls)
+        if let setIds: SetXPC = sym(group
+            ? "container_query_set_group_identifiers"
+            : "container_query_set_identifiers"),
+           let xpcStr: XpcStr = def("xpc_string_create"),
+           let ids = xpcStr(identifier) {
+            setIds(q, ids)
+        }
+        if let setPart: SetU64 = sym("container_query_operation_set_part") { setPart(q, part) }
+        if let domain, let setDomain: SetDomain = sym("container_query_operation_set_part_domain") {
+            setDomain(q, domain)
+        }
+        setFlags(q, flags)
+        return q
+    }
+
+    static func path(_ bundle: String) -> String? {
+        guard let q = build(cls: 2, identifier: bundle, group: false, flags: 0x100000000, part: 0, domain: nil),
+              let getSingle: GetPtr = sym("container_query_get_single_result"),
+              let getPath: GetStr = sym("container_object_get_path"),
+              let freeQ: FreeFn = sym("container_query_free") else { return nil }
+        defer { freeQ(q) }
+
+        guard let obj = getSingle(q), let raw = getPath(obj) else { return nil }
+        var p = String(cString: raw)
+        if p == "/var" || p.hasPrefix("/var/") { p = "/private" + p }
+        return p
+    }
+
+    static func grant(_ path: String) -> Int64 {
+        let domain = String(repeating: "..", count: 9) + path
+        guard let q = build(
+                cls: 13,
+                identifier: "systemgroup.com.apple.mobilegestaltcache",
+                group: true,
+                flags: 0x8000000000,
+                part: 3,
+                domain: domain
+              ),
+              let getSingle: GetPtr = sym("container_query_get_single_result"),
+              let copyToken: CopyToken = sym("container_copy_sandbox_token"),
+              let freeQ: FreeFn = sym("container_query_free"),
+              let consume: Consume = def("sandbox_extension_consume") else { return -1 }
+        defer { freeQ(q) }
+
+        guard let obj = getSingle(q), let token = copyToken(obj) else { return -1 }
+        defer { free(token) }
+        return consume(token)
+    }
+
+    static func release(_ handle: Int64) {
+        guard handle >= 0, let f: Release = def("sandbox_extension_release") else { return }
+        _ = f(handle)
+    }
+}
+
+enum VXContainers {
     private static var roots: [String: URL] = [:]
-    private static var handles: [String: Int64] = [:]
 
     static func resolve(_ bundle: String) throws -> URL {
         if let cached = roots[bundle] { return cached }
 
-        guard let sym = VXSym.find("MCMActivateContainerPath") else {
-            log("vx: sin símbolo MCMActivateContainerPath")
+        guard VXMCM.available else {
+            log("vx: containermanager no disponible")
             throw PatchPackageError.targetAppUnavailable(bundle)
         }
-        let f = unsafeBitCast(sym, to: PathFn.self)
-        let ns = bundle as NSString
-        var err: UnsafeMutableRawPointer?
-        guard let raw = f(2, Unmanaged.passUnretained(ns).toOpaque(), false, &err) else {
-            log("vx: MCM no devolvió ruta para \(bundle)")
+        guard let path = VXMCM.path(bundle) else {
+            log("vx: sin ruta para \(bundle)")
             throw PatchPackageError.targetAppUnavailable(bundle)
         }
-        let path = Unmanaged<NSString>.fromOpaque(raw).takeUnretainedValue() as String
-
-        if let gs = VXSym.find("bad_query") {
-            let grant = unsafeBitCast(gs, to: GrantFn.self)
-            let h = grant(strdup(path)!, true, nil, false)
-            handles[bundle] = h
-            log("vx: grant \(bundle) = \(h)")
-        }
+        let handle = VXMCM.grant(path)
+        log("vx: \(bundle) → \(path) · grant \(handle)")
 
         let url = PatchPathValidator.canonicalFileURL(URL(fileURLWithPath: path, isDirectory: true))
         roots[bundle] = url
-        log("vx: contenedor \(bundle) → \(path)")
         return url
     }
 }
