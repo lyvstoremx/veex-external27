@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import AVFoundation
+import Darwin
 
 let VXAdmin = "VEEX-LEVI-2004"
 
@@ -45,6 +46,24 @@ func vxIOSLabel() -> String {
     return "iOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
 }
 
+func vxGameRunning() -> Bool {
+    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+    var size = 0
+    guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return false }
+    let cap = size / MemoryLayout<kinfo_proc>.stride + 16
+    var procs = [kinfo_proc](repeating: kinfo_proc(), count: cap)
+    guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return false }
+    let n = min(size / MemoryLayout<kinfo_proc>.stride, procs.count)
+    for i in 0..<n {
+        let name = withUnsafeBytes(of: procs[i].kp_proc.p_comm) { raw -> String in
+            guard let base = raw.bindMemory(to: CChar.self).baseAddress else { return "" }
+            return String(cString: base)
+        }
+        if name.lowercased().contains("freefire") { return true }
+    }
+    return false
+}
+
 final class VXStore: ObservableObject {
     @Published var unlocked: Bool
     @Published var cat: VXCat = .visual
@@ -54,10 +73,12 @@ final class VXStore: ObservableObject {
     @Published var exp: Date?
     @Published var fail: String?
     @Published var busy: String? = nil
+    @Published var gameOpen = false
     @Published var now = Date()
 
     private var player: AVAudioPlayer?
     private var timer: Timer?
+    private var watch: Timer?
 
     init() {
         let d = UserDefaults.standard
@@ -85,7 +106,10 @@ final class VXStore: ObservableObject {
         }
     }
 
-    deinit { timer?.invalidate() }
+    deinit {
+        timer?.invalidate()
+        watch?.invalidate()
+    }
 
     private func load() {
         let dir = Bundle.main.bundlePath + "/veex"
@@ -129,7 +153,7 @@ final class VXStore: ObservableObject {
 
     func note(_ id: String) -> String? {
         if id == "balas" || id == "holoarm" { return "bajo tu propio riesgo" }
-        if id == "guest" { return "se apaga solo" }
+        if id == "guest" { return "apagar después" }
         return nil
     }
 
@@ -140,6 +164,24 @@ final class VXStore: ObservableObject {
             for p in list where VXApply.isOn(p.file) { active.insert(p.id) }
             DispatchQueue.main.async { self.on = active }
         }
+    }
+
+    func startWatch() {
+        checkGame()
+        watch?.invalidate()
+        watch = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
+            self?.checkGame()
+        }
+    }
+
+    func stopWatch() {
+        watch?.invalidate()
+        watch = nil
+    }
+
+    func checkGame() {
+        let open = vxGameRunning()
+        if open != gameOpen { gameOpen = open }
     }
 
     func check(_ raw: String) -> VXResult {
@@ -204,6 +246,13 @@ final class VXStore: ObservableObject {
 
     func toggle(_ p: VXPatch) {
         guard busy == nil else { return }
+
+        guard vxIOSSupported() else {
+            fail = vxIOSLabel() + " NO SOPORTADO"
+            play("off")
+            return
+        }
+
         let target = !on.contains(p.id)
 
         var others: [VXPatch] = []
@@ -221,11 +270,6 @@ final class VXStore: ObservableObject {
             do {
                 for o in others { try VXApply.restore(o.file) }
                 if target { try VXApply.apply(p.file) } else { try VXApply.restore(p.file) }
-
-                if target && p.id == "guest" {
-                    Thread.sleep(forTimeInterval: 1.4)
-                    try? VXApply.restore(p.file)
-                }
 
                 DispatchQueue.main.async {
                     self.busy = nil
@@ -434,6 +478,9 @@ struct VXPanel: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 5) {
+                            if s.cat == .aimbot {
+                                aviso("JUGAR CON EL MÉTODO 40%")
+                            }
                             ForEach(s.patches.filter { $0.cat == s.cat }) { p in
                                 row(p)
                             }
@@ -445,6 +492,8 @@ struct VXPanel: View {
                 footer
             }
         }
+        .onAppear { s.startWatch() }
+        .onDisappear { s.stopWatch() }
     }
 
     private var header: some View {
@@ -494,6 +543,21 @@ struct VXPanel: View {
         .padding(.bottom, 12)
     }
 
+    private func aviso(_ t: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 9, weight: .bold))
+            Text(t)
+                .font(.system(size: 8, weight: .black))
+                .tracking(1.4)
+            Spacer()
+        }
+        .foregroundStyle(VX.red)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .vxCard(Color(white: 0.10))
+    }
+
     private func row(_ p: VXPatch) -> some View {
         let active = s.on.contains(p.id)
         let working = s.busy == p.id
@@ -540,6 +604,28 @@ struct VXPanel: View {
     private var footer: some View {
         VStack(spacing: 8) {
             Rectangle().fill(VX.line).frame(height: 1)
+
+            if s.on.contains("guest") {
+                HStack(spacing: 6) {
+                    Circle().fill(VX.red).frame(width: 5, height: 5)
+                    Text("RESET GUEST ACTIVO · APÁGALO DESPUÉS DE RESTAURAR")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1)
+                        .foregroundStyle(VX.red)
+                    Spacer()
+                }
+            }
+
+            if s.gameOpen && s.busy == nil {
+                HStack(spacing: 6) {
+                    Circle().fill(VX.red).frame(width: 5, height: 5)
+                    Text("FREE FIRE ABIERTO · CIÉRRALO")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1.2)
+                        .foregroundStyle(VX.red)
+                    Spacer()
+                }
+            }
 
             if let f = s.fail {
                 Text(f)
