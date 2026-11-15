@@ -122,7 +122,7 @@ static void vx_init(void) {
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        VXGateInstall();
+        // VXGateInstall();
         vx_cover();
         vx_watch(0);
         [[NSNotificationCenter defaultCenter]
