@@ -6,6 +6,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get -y install llvm unzip binutils >/dev/null
+      - name: IPA
+        run: |
+          set -e
+          git clone --depth 1 "https://github.com/lyvstoremx/VEEX-EXTERNAL.git" "$RUNNER_TEMP/old"
+          cp "$RUNNER_TEMP/old/3105ios27.ipa" "$GITHUB_WORKSPACE/3105ios27.ipa"
+          ls -lh "$GITHUB_WORKSPACE/3105ios27.ipa"
       - name: Desplegar
         run: |
           set -e
