@@ -1,6 +1,6 @@
 //
 //  VXGate.swift
-//  Sube el techo de la tabla de versiones y localiza símbolos en la imagen principal.
+//  Sube el techo de la tabla de versiones.
 //
 
 import Darwin
@@ -79,9 +79,24 @@ enum VXGate {
         return out
     }
 
-    private static func barrido(_ name: String) -> Int {
+    private static func baseVm() -> UInt? {
+        guard let hdr = _dyld_get_image_header(0), hdr.pointee.magic == MH_MAGIC_64 else { return nil }
+        let base = UnsafeRawPointer(hdr)
+        var cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
+        for _ in 0..<Int(hdr.pointee.ncmds) {
+            let cmd = cursor.assumingMemoryBound(to: load_command.self)
+            if cmd.pointee.cmd == UInt32(LC_SEGMENT_64) {
+                let seg = cursor.assumingMemoryBound(to: segment_command_64.self)
+                if segName(seg) == "__TEXT" { return UInt(seg.pointee.vmaddr) }
+            }
+            guard cmd.pointee.cmdsize > 0 else { break }
+            cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
+        }
+        return nil
+    }
+
+    private static func barrido(_ name: String, _ baseVm: UInt) -> Int {
         guard let hdr = _dyld_get_image_header(0), hdr.pointee.magic == MH_MAGIC_64 else { return 0 }
-        let slide = _dyld_get_image_vmaddr_slide(0)
         let base = UnsafeRawPointer(hdr)
         var cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
 
@@ -91,24 +106,28 @@ enum VXGate {
                 let seg = cursor.assumingMemoryBound(to: segment_command_64.self)
                 if segName(seg) == name {
                     let size = Int(seg.pointee.filesize)
-                    log("vx: gate seg \(name) \(size)")
-                    guard size > 8, size < 64_000_000 else { return 0 }
-                    let start = UInt(bitPattern: base) &+ UInt(bitPattern: slide) &+ UInt(seg.pointee.vmaddr)
+                    guard size > 8, size < 128_000_000 else { return 0 }
+                    let off = UInt(seg.pointee.vmaddr) &- baseVm
+                    let start = UInt(bitPattern: base) &+ off
                     guard let raw = UnsafeMutableRawPointer(bitPattern: start) else { return 0 }
                     prot(start, size)
                     let b = raw.assumingMemoryBound(to: UInt8.self)
                     var total = 0
                     var i = 0
-                    while i + 3 < size {
+                    while i + 4 < size {
                         if b[i] == 0x32, b[i + 1] == 0x37, b[i + 2] == 0x2E, b[i + 3] == 0x32 {
-                            b[i + 3] = 0x33
-                            total += 1
-                            i += 4
-                            continue
+                            let next = b[i + 4]
+                            if next == 0x20 || next == 0x29 || next == 0x00 {
+                                b[i + 3] = 0x33
+                                total += 1
+                                i += 5
+                                continue
+                            }
                         }
                         i += 1
                     }
                     icache?(UnsafeRawPointer(raw), size)
+                    log("vx: gate \(name) off \(off) size \(size) → \(total)")
                     return total
                 }
             }
@@ -120,8 +139,13 @@ enum VXGate {
 
     static func install() {
         log("vx: gate inicio")
-        var n = barrido("__cstring")
-        if n <= 0 { n = barrido("__TEXT") }
+        guard let baseVm = baseVm() else { log("vx: gate sin base"); return }
+        log("vx: gate base \(baseVm)")
+        var n = 0
+        for seg in ["__cstring", "__const", "__TEXT"] {
+            let r = barrido(seg, baseVm)
+            if r > 0 { n += r }
+        }
         log("vx: gate version parches \(n)")
         log("vx: gate supportpolicy \(locate(["SupportPolicy"]).count)")
     }
