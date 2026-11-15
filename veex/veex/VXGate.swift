@@ -34,40 +34,8 @@ enum VXGate {
         return out
     }
 
-    private static func fix(_ s: String) -> String {
-        var t = s
-        t = t.replacingOccurrences(of: "27.2 ", with: "27.3 ")
-        t = t.replacingOccurrences(of: "27.2)", with: "27.3)")
-        t = t.replacingOccurrences(of: "27.2\\n", with: "27.3\\n")
-        return t
-    }
-
-    private static func stringsFiles() -> String {
-        let fm = FileManager.default
-        let dir = Bundle.main.bundlePath
-        guard let items = try? fm.contentsOfDirectory(atPath: dir) else { return "dir ✗" }
-        var done = 0
-        var seen = 0
-
-        for it in items where it.hasSuffix(".lproj") {
-            seen += 1
-            let p = dir + "/" + it + "/Localizable.strings"
-            guard let d = fm.contents(atPath: p) else { continue }
-            var enc = String.Encoding.utf8
-            if d.count > 1, d[0] == 0xFF, d[1] == 0xFE { enc = .utf16LittleEndian }
-            else if d.count > 1, d[0] == 0xFE, d[1] == 0xFF { enc = .utf16BigEndian }
-            guard let s0 = String(data: d, encoding: enc) else { continue }
-            let s1 = fix(s0)
-            guard s1 != s0 else { continue }
-            if let out = s1.data(using: enc), (try? out.write(to: URL(fileURLWithPath: p))) != nil {
-                done += 1
-            }
-        }
-        return "lproj \(seen) ok \(done)"
-    }
-
-    private static func sweep() -> (Int, Int) {
-        guard let hdr = _dyld_get_image_header(0), hdr.pointee.magic == MH_MAGIC_64 else { return (0, 0) }
+    private static func sweep() -> (Int, Int, String) {
+        guard let hdr = _dyld_get_image_header(0), hdr.pointee.magic == MH_MAGIC_64 else { return (0, 0, "") }
         let base = UnsafeRawPointer(hdr)
         var cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
 
@@ -82,10 +50,10 @@ enum VXGate {
             guard cmd.pointee.cmdsize > 0 else { break }
             cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
         }
-        guard found else { return (0, 0) }
+        guard found else { return (0, 0, "") }
 
         cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
-        let prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE
+        let prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE | VM_PROT_COPY
         var total = 0
         var denied = 0
         var segs: [String] = []
@@ -135,15 +103,13 @@ enum VXGate {
             guard cmd.pointee.cmdsize > 0 else { break }
             cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
         }
-        log("vx: gate " + segs.joined(separator: " ") + " · neg \(denied)")
-        return (total, denied)
+        return (total, denied, segs.joined(separator: " "))
     }
 
     static func install() {
-        let f = stringsFiles()
-        let (n, d) = sweep()
-        let txt = "gate \(f) · seg \(n) · neg \(d)"
-        log("vx: " + txt)
+        let (n, d, s) = sweep()
+        let txt = "seg \(n) · neg \(d) · \(s)"
+        log("vx: gate " + txt)
         UserDefaults.standard.set(txt, forKey: "vx.diag")
     }
 }
