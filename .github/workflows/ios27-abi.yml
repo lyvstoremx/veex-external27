@@ -21,8 +21,14 @@ jobs:
         run: ls -R "$APP" | head -80
       - name: Cadenas
         run: strings -a "$BIN" | grep -iE 'worse|bad_query|airlift|mcm_' | sort -u | head -80
+      - name: Pairing y afc
+        run: strings -a "$BIN" | grep -iE 'pair|rppair|afc|house|mha|airlift|lockdown' | sort -u | head -100
+      - name: Pairing en el IPA
+        run: find "$APP" -iname '*pair*' -o -iname '*.mobiledevicepairing' | head -20
       - name: Simbolos todos
         run: llvm-nm -a "$BIN" 2>/dev/null | grep -iE 'worse|query|sandbox' | head -80
+      - name: Simbolos pairing
+        run: llvm-nm -a "$BIN" 2>/dev/null | grep -iE 'pair|afc|tunnel|rsd|house|mha|airlift' | head -120
       - name: Simbolos
         run: llvm-nm --defined-only "$BIN" | grep -iE 'worse|supportpolicy|isSupported|sandbox_extension' | head -80
       - name: Llamadores
