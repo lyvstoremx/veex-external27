@@ -106,7 +106,7 @@ enum VXGate {
                 let seg = cursor.assumingMemoryBound(to: segment_command_64.self)
                 let n = segName(seg)
                 let size = Int(seg.pointee.filesize)
-                if size > 8, size < 80_000_000, n != "__PAGEZERO", n != "__LINKEDIT" {
+                if size > 8, size < 200_000_000, n != "__PAGEZERO" {
                     let start = UInt(bitPattern: base) &+ (UInt(seg.pointee.vmaddr) &- textVm)
                     if let raw = UnsafeMutableRawPointer(bitPattern: start) {
                         let b = raw.assumingMemoryBound(to: UInt8.self)
@@ -154,6 +154,6 @@ enum VXGate {
 }
 
 @_cdecl("VXGateInstall")
-public func VXGateInstall() {
+publy func VXGateInstall() {
     VXGate.install()
 }
