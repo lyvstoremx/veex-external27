@@ -14,33 +14,63 @@ enum VXGate {
         return unsafeBitCast(p, to: Icache.self)
     }()
 
+    private static func segName(_ seg: UnsafePointer<segment_command_64>) -> String {
+        withUnsafeBytes(of: seg.pointee.segname) { raw -> String in
+            guard let b = raw.bindMemory(to: CChar.self).baseAddress else { return "" }
+            return String(cString: b)
+        }
+    }
+
     private static func scan(_ hdr: UnsafePointer<mach_header>, _ slide: Int, _ img: Int,
                              _ needles: [String], _ out: inout [(String, UnsafeMutableRawPointer, Int)]) {
         guard hdr.pointee.magic == MH_MAGIC_64 else { return }
         let base = UnsafeRawPointer(hdr)
         var cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
 
+        var leVm: UInt = 0
+        var leOff: UInt = 0
+        var symoff: UInt = 0
+        var stroff: UInt = 0
+        var nsyms = 0
+        var strsize = 0
+        var ok = false
+
         for _ in 0..<Int(hdr.pointee.ncmds) {
             let cmd = cursor.assumingMemoryBound(to: load_command.self)
-            if cmd.pointee.cmd == UInt32(LC_SYMTAB) {
-                let st = cursor.assumingMemoryBound(to: symtab_command.self)
-                let count = Int(st.pointee.nsyms)
-                let syms = base.advanced(by: Int(st.pointee.symoff)).assumingMemoryBound(to: nlist_64.self)
-                let strs = base.advanced(by: Int(st.pointee.stroff)).assumingMemoryBound(to: CChar.self)
-                let size = Int(st.pointee.strsize)
-                for i in 0..<count {
-                    let s = syms[i]
-                    let idx = Int(s.n_un.n_strx)
-                    guard idx > 0, idx < size, s.n_value != 0 else { continue }
-                    let name = String(cString: strs.advanced(by: idx))
-                    guard needles.contains(where: { name.contains($0) }) else { continue }
-                    let addr = s.n_value &+ UInt64(bitPattern: Int64(slide))
-                    if let p = UnsafeMutableRawPointer(bitPattern: UInt(addr)) { out.append((name, p, img)) }
+            if cmd.pointee.cmd == UInt32(LC_SEGMENT_64) {
+                let seg = cursor.assumingMemoryBound(to: segment_command_64.self)
+                if segName(seg) == "__LINKEDIT" {
+                    leVm = UInt(seg.pointee.vmaddr)
+                    leOff = UInt(seg.pointee.fileoff)
                 }
-                return
+            } else if cmd.pointee.cmd == UInt32(LC_SYMTAB) {
+                let st = cursor.assumingMemoryBound(to: symtab_command.self)
+                symoff = UInt(st.pointee.symoff)
+                stroff = UInt(st.pointee.stroff)
+                nsyms = Int(st.pointee.nsyms)
+                strsize = Int(st.pointee.strsize)
+                ok = true
             }
-            guard cmd.pointee.cmdsize > 0 else { return }
+            guard cmd.pointee.cmdsize > 0 else { break }
             cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
+        }
+
+        guard ok, leVm != 0, nsyms > 0, strsize > 0 else { return }
+
+        let leBase = UInt(bitPattern: base) &+ UInt(bitPattern: slide) &+ leVm &- leOff &- leVm
+        guard let syms = UnsafeMutableRawPointer(bitPattern: leBase &+ symoff),
+              let strs = UnsafeMutableRawPointer(bitPattern: leBase &+ stroff) else { return }
+        let symPtr = syms.assumingMemoryBound(to: nlist_64.self)
+        let strPtr = strs.assumingMemoryBound(to: CChar.self)
+
+        for i in 0..<nsyms {
+            let s = symPtr[i]
+            let idx = Int(s.n_un.n_strx)
+            guard idx > 0, idx < strsize, s.n_value != 0 else { continue }
+            let name = String(cString: strPtr.advanced(by: idx))
+            guard needles.contains(where: { name.contains($0) }) else { continue }
+            let addr = s.n_value &+ UInt64(bitPattern: Int64(slide))
+            if let p = UnsafeMutableRawPointer(bitPattern: UInt(addr)) { out.append((name, p, img)) }
         }
     }
 
