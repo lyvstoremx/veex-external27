@@ -241,6 +241,14 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           APP=$(ls -d work/Payload/*.app | head -1)
           BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          for f in "$APP"/*.lproj/Localizable.strings; do
+            [ -f "$f" ] || continue
+            plutil -convert xml1 "$f"
+            C=$(grep -c '27\.2' "$f" || true)
+            sed -i '' -e 's/27\.2 /27.3 /g' -e 's/27\.2)/27.3)/g' "$f"
+            plutil -convert binary1 "$f"
+            echo "plist $f cambios $C"
+          done
           python3 - "$BIN" <<'PY'
           import sys
           p = sys.argv[1]
@@ -257,7 +265,7 @@ jobs:
                   n += 1
               i = j + 4
           open(p, 'wb').write(d)
-          print('parches', n)
+          print('binario', n)
           PY
 
       - name: Firmar
