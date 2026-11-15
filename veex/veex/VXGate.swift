@@ -1,6 +1,6 @@
 //
 //  VXGate.swift
-//  Sube el techo de la tabla de versiones, página por página.
+//  Sube el techo de la tabla de versiones, página por página, con ejecución.
 //
 
 import Darwin
@@ -78,7 +78,6 @@ enum VXGate {
         let base = UnsafeRawPointer(hdr)
         var cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
 
-        var baseVm: UInt = 0
         var textVm: UInt = 0
         var textSize = 0
         var found = false
@@ -87,17 +86,21 @@ enum VXGate {
             let cmd = cursor.assumingMemoryBound(to: load_command.self)
             if cmd.pointee.cmd == UInt32(LC_SEGMENT_64) {
                 let seg = cursor.assumingMemoryBound(to: segment_command_64.self)
-                let n = segName(seg)
-                if n == "__TEXT" { textVm = UInt(seg.pointee.vmaddr); textSize = Int(seg.pointee.filesize); found = true }
+                if segName(seg) == "__TEXT" {
+                    textVm = UInt(seg.pointee.vmaddr)
+                    textSize = Int(seg.pointee.filesize)
+                    found = true
+                }
             }
             guard cmd.pointee.cmdsize > 0 else { break }
             cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
         }
         guard found, textSize > 8 else { return (0, 0) }
-        baseVm = textVm
 
-        let start = UInt(bitPattern: base) &+ (textVm &- baseVm)
+        let start = UInt(bitPattern: base)
         guard let raw = UnsafeMutableRawPointer(bitPattern: start) else { return (0, 0) }
+
+        let prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE
 
         var patched = 0
         var denied = 0
@@ -106,7 +109,7 @@ enum VXGate {
         for p in 0..<pages {
             let pg = start &+ UInt(p) * 0x1000
             let kr = vm_protect(mach_task_self_, vm_address_t(pg), vm_size_t(0x1000),
-                                boolean_t(0), VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY)
+                                boolean_t(0), prot)
             if kr != KERN_SUCCESS {
                 denied += 1
                 continue
