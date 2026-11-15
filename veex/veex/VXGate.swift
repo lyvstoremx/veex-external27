@@ -21,9 +21,12 @@ enum VXGate {
         }
     }
 
-    private static func scan(_ hdr: UnsafePointer<mach_header>, _ slide: Int, _ img: Int,
-                             _ needles: [String], _ out: inout [(String, UnsafeMutableRawPointer, Int)]) {
-        guard hdr.pointee.magic == MH_MAGIC_64 else { return }
+    private static func scanMain(_ needles: [String]) -> [(String, UnsafeMutableRawPointer)] {
+        var out: [(String, UnsafeMutableRawPointer)] = []
+        guard let hdr = _dyld_get_image_header(0) else { return out }
+        guard hdr.pointee.magic == MH_MAGIC_64 else { return out }
+
+        let slide = _dyld_get_image_vmaddr_slide(0)
         let base = UnsafeRawPointer(hdr)
         var cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
 
@@ -55,11 +58,11 @@ enum VXGate {
             cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
         }
 
-        guard ok, leVm != 0, nsyms > 0, strsize > 0 else { return }
+        guard ok, leVm != 0, nsyms > 0, strsize > 0 else { return out }
 
-        let leBase = UInt(bitPattern: base) &+ UInt(bitPattern: slide) &+ leVm &- leOff &- leVm
+        let leBase = UInt(bitPattern: base) &+ UInt(bitPattern: slide) &- leOff
         guard let syms = UnsafeMutableRawPointer(bitPattern: leBase &+ symoff),
-              let strs = UnsafeMutableRawPointer(bitPattern: leBase &+ stroff) else { return }
+              let strs = UnsafeMutableRawPointer(bitPattern: leBase &+ stroff) else { return out }
         let symPtr = syms.assumingMemoryBound(to: nlist_64.self)
         let strPtr = strs.assumingMemoryBound(to: CChar.self)
 
@@ -70,18 +73,13 @@ enum VXGate {
             let name = String(cString: strPtr.advanced(by: idx))
             guard needles.contains(where: { name.contains($0) }) else { continue }
             let addr = s.n_value &+ UInt64(bitPattern: Int64(slide))
-            if let p = UnsafeMutableRawPointer(bitPattern: UInt(addr)) { out.append((name, p, img)) }
+            if let p = UnsafeMutableRawPointer(bitPattern: UInt(addr)) { out.append((name, p)) }
         }
+        return out
     }
 
     static func locate(_ needles: [String]) -> [(String, UnsafeMutableRawPointer, Int)] {
-        var out: [(String, UnsafeMutableRawPointer, Int)] = []
-        for i in 0..<_dyld_image_count() {
-            guard let hdr = _dyld_get_image_header(i) else { continue }
-            let slide = _dyld_get_image_vmaddr_slide(i)
-            scan(hdr, slide, Int(i), needles, &out)
-        }
-        return out
+        scanMain(needles).map { ($0.0, $0.1, 0) }
     }
 
     private static func patch(_ p: UnsafeMutableRawPointer) -> Bool {
@@ -103,7 +101,9 @@ enum VXGate {
     }
 
     static func install() {
-        let hits = locate(["SupportPolicy"]).filter { $0.2 == 0 }
+        log("vx: gate inicio")
+        let hits = locate(["SupportPolicy"])
+        log("vx: gate candidatos \(hits.count)")
         if hits.isEmpty { log("vx: gate no localizado") }
         for (n, h, _) in hits where patch(h) { log("vx: gate parcheado \(n)") }
     }
