@@ -64,13 +64,14 @@ static void vx_cover(void) {
 static void vxMKAV(UIWindow *self, SEL _cmd) {
     vxOrigMKAV(self, _cmd);
     if (self == vxWin || self == vxCover) return;
+    vx_veil(self.rootViewController.view);
 }
 
 static void vx_build(UIWindowScene *ws) {
     if (vxWin || !ws) return;
 
     vxWin = [[UIWindow alloc] initWithWindowScene:ws];
-    vxWin.windowLevel = UIWindowLevelNormal - 1;
+    vxWin.windowLevel = UIWindowLevelAlert + 1;
     vxWin.backgroundColor = UIColor.blackColor;
     vxWin.rootViewController = VXMakePanel();
     [vxWin makeKeyAndVisible];
@@ -95,36 +96,37 @@ static void vx_watch(int n) {
         if (![sc isKindOfClass:[UIWindowScene class]]) continue;
         UIWindowScene *ws = (UIWindowScene *)sc;
         if (!vxWin && ws.activationState != UISceneActivationStateUnattached) vx_build(ws);
+        for (UIWindow *w in ws.windows) {
+            if (w == vxWin) continue;
+            vx_veil(w.rootViewController.view);
+        }
     }
+
+    if (vxWin) [vxWin makeKeyAndVisible];
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.004 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{ vx_watch(n + 1); });
 }
 
-static NSString *vxVersion(id self, SEL _cmd) {
-    return @"27.2";
-}
-
-static NSOperatingSystemVersion vxOSV(id self, SEL _cmd) {
-    NSOperatingSystemVersion v = { 27, 2, 0 };
-    return v;
+static void vx_diag(void) {
+    NSString *t = [NSUserDefaults.standardUserDefaults stringForKey:@"vx.diag"];
+    if (!t.length) t = @"sin datos";
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"GATE"
+                                                              message:t
+                                                       preferredStyle:UIAlertControllerStyleAlert];
+    [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [vxWin.rootViewController presentViewController:a animated:YES completion:nil];
 }
 
 __attribute__((constructor))
 static void vx_init(void) {
-    // VXGateInstall();
+    VXGateInstall();
 
     Method m = class_getInstanceMethod([UIWindow class], @selector(makeKeyAndVisible));
     if (m) {
         vxOrigMKAV = (void (*)(id, SEL))method_getImplementation(m);
         method_setImplementation(m, (IMP)vxMKAV);
     }
-
-    Method sv = class_getInstanceMethod([UIDevice class], @selector(systemVersion));
-    if (sv) method_setImplementation(sv, (IMP)vxVersion);
-
-    Method osv = class_getInstanceMethod([NSProcessInfo class], @selector(operatingSystemVersion));
-    if (osv) method_setImplementation(osv, (IMP)vxOSV);
 
     dispatch_async(dispatch_get_main_queue(), ^{
         vx_cover();
@@ -137,4 +139,7 @@ static void vx_init(void) {
             if ([[n object] isKindOfClass:[UIWindowScene class]]) vx_build((UIWindowScene *)[n object]);
         }];
     });
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ if (vxWin) vx_diag(); });
 }
