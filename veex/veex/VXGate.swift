@@ -9,9 +9,15 @@ import MachO
 
 private typealias MGStr = @convention(c) (CFString?) -> Unmanaged<CFString>?
 private typealias MGCopy = @convention(c) (CFString?) -> Unmanaged<CFTypeRef>?
+private typealias Icache = @convention(c) (UnsafeRawPointer, Int) -> Void
 
 private var vxOrigStr: MGStr?
 private var vxOrigCopy: MGCopy?
+
+private let vxIcache: Icache? = {
+    guard let p = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "sys_icache_invalidate") else { return nil }
+    return unsafeBitCast(p, to: Icache.self)
+}()
 
 private func vxReply(_ key: CFString?) -> CFString? {
     guard let key else { return nil }
@@ -62,7 +68,7 @@ enum VXGate {
             return false
         }
         branch(fn, repl)
-        sys_icache_invalidate(fn, 16)
+        vxIcache?(UnsafeRawPointer(fn), 16)
         return true
     }
 
