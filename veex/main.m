@@ -64,14 +64,13 @@ static void vx_cover(void) {
 static void vxMKAV(UIWindow *self, SEL _cmd) {
     vxOrigMKAV(self, _cmd);
     if (self == vxWin || self == vxCover) return;
-    vx_veil(self.rootViewController.view);
 }
 
 static void vx_build(UIWindowScene *ws) {
     if (vxWin || !ws) return;
 
     vxWin = [[UIWindow alloc] initWithWindowScene:ws];
-    vxWin.windowLevel = UIWindowLevelAlert + 1;
+    vxWin.windowLevel = UIWindowLevelNormal - 1;
     vxWin.backgroundColor = UIColor.blackColor;
     vxWin.rootViewController = VXMakePanel();
     [vxWin makeKeyAndVisible];
@@ -95,16 +94,8 @@ static void vx_watch(int n) {
     for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
         if (![sc isKindOfClass:[UIWindowScene class]]) continue;
         UIWindowScene *ws = (UIWindowScene *)sc;
-
         if (!vxWin && ws.activationState != UISceneActivationStateUnattached) vx_build(ws);
-
-        for (UIWindow *w in ws.windows) {
-            if (w == vxWin) continue;
-            vx_veil(w.rootViewController.view);
-        }
     }
-
-    if (vxWin) [vxWin makeKeyAndVisible];
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.004 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{ vx_watch(n + 1); });
