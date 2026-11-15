@@ -110,16 +110,6 @@ static void vx_watch(int n) {
                    dispatch_get_main_queue(), ^{ vx_watch(n + 1); });
 }
 
-static void vx_diag(void) {
-    NSString *t = [NSUserDefaults.standardUserDefaults stringForKey:@"vx.diag"];
-    if (!t.length) t = @"sin datos";
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"GATE"
-                                                              message:t
-                                                       preferredStyle:UIAlertControllerStyleAlert];
-    [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-    [vxWin.rootViewController presentViewController:a animated:YES completion:nil];
-}
-
 static NSString *vxVersion(id self, SEL _cmd) {
     return @"27.2";
 }
@@ -131,7 +121,7 @@ static NSOperatingSystemVersion vxOSV(id self, SEL _cmd) {
 
 __attribute__((constructor))
 static void vx_init(void) {
-    VXGateInstall();
+    // VXGateInstall();
 
     Method m = class_getInstanceMethod([UIWindow class], @selector(makeKeyAndVisible));
     if (m) {
@@ -156,7 +146,4 @@ static void vx_init(void) {
             if ([[n object] isKindOfClass:[UIWindowScene class]]) vx_build((UIWindowScene *)[n object]);
         }];
     });
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ if (vxWin) vx_diag(); });
 }
