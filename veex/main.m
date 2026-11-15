@@ -113,6 +113,15 @@ static void vx_watch(int n) {
                    dispatch_get_main_queue(), ^{ vx_watch(n + 1); });
 }
 
+static NSString *vxVersion(id self, SEL _cmd) {
+    return @"27.2";
+}
+
+static NSOperatingSystemVersion vxOSV(id self, SEL _cmd) {
+    NSOperatingSystemVersion v = { 27, 2, 0 };
+    return v;
+}
+
 __attribute__((constructor))
 static void vx_init(void) {
     Method m = class_getInstanceMethod([UIWindow class], @selector(makeKeyAndVisible));
@@ -121,8 +130,14 @@ static void vx_init(void) {
         method_setImplementation(m, (IMP)vxMKAV);
     }
 
+    Method sv = class_getInstanceMethod([UIDevice class], @selector(systemVersion));
+    if (sv) method_setImplementation(sv, (IMP)vxVersion);
+
+    Method osv = class_getInstanceMethod([NSProcessInfo class], @selector(operatingSystemVersion));
+    if (osv) method_setImplementation(osv, (IMP)vxOSV);
+
     dispatch_async(dispatch_get_main_queue(), ^{
-        // VXGateInstall();
+        VXGateInstall();
         vx_cover();
         vx_watch(0);
         [[NSNotificationCenter defaultCenter]
