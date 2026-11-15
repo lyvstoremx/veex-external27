@@ -33,11 +33,11 @@ jobs:
         run: find "$APP" -iname '*pair*' -o -iname '*.mobiledevicepairing' | head -20
       - name: Simbolos todos
         run: llvm-nm -a "$BIN" 2>/dev/null | grep -iE 'worse|query|sandbox' | head -80
-      - name: Simbolos pairing
-        run: llvm-nm -a "$BIN" 2>/dev/null | grep -iE 'pair|afc|tunnel|rsd|house|mha|airlift' | head -120
+      - name: Simbolos C
+        run: llvm-nm --defined-only "$BIN" | grep -v '_ZN' | grep -iE 'pair|afc|tunnel|lockdown|escrow|service|session|mha|house' | head -150
       - name: Simbolos
         run: llvm-nm --defined-only "$BIN" | grep -iE 'worse|supportpolicy|isSupported|sandbox_extension' | head -80
-      - name: Llamadores
+      - name: Llamadores pairing
         run: |
           llvm-objdump -d --macho "$BIN" > dis.txt || true
-          grep -n -B 26 'worse_query' dis.txt | head -260
+          grep -n -B 20 -E 'pair_setup|get_pairing_file|save_pair_record_on_peer|request_pair_consent' dis.txt | head -300
