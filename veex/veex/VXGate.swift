@@ -1,6 +1,6 @@
 //
 //  VXGate.swift
-//  Engancha MobileGestalt para reportar 27.2.
+//  Parchea MobileGestalt para reportar 27.2.
 //
 
 import Darwin
@@ -33,99 +33,47 @@ public func vxMGCopy(_ key: CFString?) -> Unmanaged<CFTypeRef>? {
 }
 
 enum VXGate {
-    private static func segName(_ seg: UnsafePointer<segment_command_64>) -> String {
-        withUnsafeBytes(of: seg.pointee.segname) { raw -> String in
-            guard let b = raw.bindMemory(to: CChar.self).baseAddress else { return "" }
-            return String(cString: b)
-        }
+    private static func branch(_ from: UnsafeMutableRawPointer, _ to: UnsafeMutableRawPointer) {
+        let p = from.assumingMemoryBound(to: UInt32.self)
+        p[0] = 0x58000050
+        p[1] = 0xD61F0200
+        let q = from.advanced(by: 8).assumingMemoryBound(to: UInt.self)
+        q.pointee = UInt(bitPattern: to)
     }
 
-    private static func hook(_ name: String, _ repl: UnsafeMutableRawPointer) -> Int {
-        guard let hdr = _dyld_get_image_header(0), hdr.pointee.magic == MH_MAGIC_64 else { return 0 }
-        let base = UnsafeRawPointer(hdr)
-        var cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
+    private static func tramp(_ fn: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer? {
+        guard let mem = mmap(nil, 64, PROT_READ | PROT_WRITE | PROT_EXEC,
+                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0),
+              mem != UnsafeMutableRawPointer(bitPattern: -1) else { return nil }
+        memcpy(mem, fn, 16)
+        branch(mem.advanced(by: 16), fn.advanced(by: 16))
+        return mem
+    }
 
-        var textVm: UInt = 0
-        var symoff = 0, stroff = 0, nsyms = 0, strsize = 0
-        var indOff = 0, nind = 0
-        var ok = false
+    private static func patch(_ name: String, _ repl: UnsafeMutableRawPointer,
+                              _ save: (UnsafeMutableRawPointer) -> Void) -> Bool {
+        guard let fn = dlsym(UnsafeMutableRawPointer(bitPattern: -2), name) else { return false }
+        guard let t = tramp(fn) else { return false }
+        save(t)
 
-        for _ in 0..<Int(hdr.pointee.ncmds) {
-            let cmd = cursor.assumingMemoryBound(to: load_command.self)
-            if cmd.pointee.cmd == UInt32(LC_SEGMENT_64) {
-                let seg = cursor.assumingMemoryBound(to: segment_command_64.self)
-                if segName(seg) == "__TEXT" { textVm = UInt(seg.pointee.vmaddr) }
-            } else if cmd.pointee.cmd == UInt32(LC_SYMTAB) {
-                let st = cursor.assumingMemoryBound(to: symtab_command.self)
-                symoff = Int(st.pointee.symoff)
-                stroff = Int(st.pointee.stroff)
-                nsyms = Int(st.pointee.nsyms)
-                strsize = Int(st.pointee.strsize)
-                ok = true
-            } else if cmd.pointee.cmd == UInt32(LC_DYSYMTAB) {
-                let dy = cursor.assumingMemoryBound(to: dysymtab_command.self)
-                indOff = Int(dy.pointee.indirectsymoff)
-                nind = Int(dy.pointee.nindirectsyms)
-            }
-            guard cmd.pointee.cmdsize > 0 else { break }
-            cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
+        let page = UInt(bitPattern: fn) & ~0xFFF
+        guard vm_protect(mach_task_self_, vm_address_t(page), vm_size_t(0x4000),
+                         boolean_t(0), VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE | VM_PROT_COPY) == KERN_SUCCESS else {
+            return false
         }
-        guard ok, nind > 0, nsyms > 0 else { return 0 }
-
-        let syms = base.advanced(by: symoff).assumingMemoryBound(to: nlist_64.self)
-        let strs = base.advanced(by: stroff).assumingMemoryBound(to: CChar.self)
-        let ind = base.advanced(by: indOff).assumingMemoryBound(to: UInt32.self)
-
-        cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
-        var hits = 0
-
-        for _ in 0..<Int(hdr.pointee.ncmds) {
-            let cmd = cursor.assumingMemoryBound(to: load_command.self)
-            if cmd.pointee.cmd == UInt32(LC_SEGMENT_64) {
-                let seg = cursor.assumingMemoryBound(to: segment_command_64.self)
-                let sects = UnsafeRawPointer(seg).advanced(by: MemoryLayout<segment_command_64>.size)
-                    .assumingMemoryBound(to: section_64.self)
-                for j in 0..<Int(seg.pointee.nsects) {
-                    let s = sects[j]
-                    let flags = s.flags & 0xFF
-                    guard flags == 0x7 || flags == 0x6 else { continue }
-                    let start = UInt(bitPattern: base) &+ (UInt(s.addr) &- textVm)
-                    let count = Int(s.size) / 8
-                    guard let table = UnsafeMutableRawPointer(bitPattern: start) else { continue }
-                    _ = vm_protect(mach_task_self_, vm_address_t(start & ~0xFFF),
-                                   vm_size_t(0x4000), boolean_t(0),
-                                   VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY)
-                    let slots = table.assumingMemoryBound(to: UnsafeMutableRawPointer?.self)
-                    for k in 0..<count {
-                        let idx = Int(ind[Int(s.reserved1) + k])
-                        guard idx < nsyms, idx > 0 else { continue }
-                        let n = syms[idx]
-                        let si = Int(n.n_un.n_strx)
-                        guard si > 0, si < strsize else { continue }
-                        let nm = String(cString: strs.advanced(by: si))
-                        guard nm == name || nm == "_" + name else { continue }
-                        slots[k] = repl
-                        hits += 1
-                    }
-                }
-            }
-            guard cmd.pointee.cmdsize > 0 else { break }
-            cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
-        }
-        return hits
+        branch(fn, repl)
+        sys_icache_invalidate(fn, 16)
+        return true
     }
 
     static func install() {
-        if let a = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "MGGetStringAnswer") {
-            vxOrigStr = unsafeBitCast(a, to: MGStr.self)
-        }
-        if let b = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "MGCopyAnswer") {
-            vxOrigCopy = unsafeBitCast(b, to: MGCopy.self)
-        }
-
         var n = 0
-        n += hook("MGGetStringAnswer", unsafeBitCast(vxMGStr as MGStr, to: UnsafeMutableRawPointer.self))
-        n += hook("MGCopyAnswer", unsafeBitCast(vxMGCopy as MGCopy, to: UnsafeMutableRawPointer.self))
+        if patch("MGGetStringAnswer",
+                 unsafeBitCast(vxMGStr as MGStr, to: UnsafeMutableRawPointer.self),
+                 { vxOrigStr = unsafeBitCast($0, to: MGStr.self) }) { n += 1 }
+        if patch("MGCopyAnswer",
+                 unsafeBitCast(vxMGCopy as MGCopy, to: UnsafeMutableRawPointer.self),
+                 { vxOrigCopy = unsafeBitCast($0, to: MGCopy.self) }) { n += 1 }
 
         let txt = "hook MG \(n)"
         log("vx: " + txt)
