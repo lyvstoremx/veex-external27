@@ -64,7 +64,6 @@ static void vx_cover(void) {
 static void vxMKAV(UIWindow *self, SEL _cmd) {
     vxOrigMKAV(self, _cmd);
     if (self == vxWin || self == vxCover) return;
-    // vx_veil(self.rootViewController.view);
 }
 
 static void vx_build(UIWindowScene *ws) {
@@ -95,13 +94,7 @@ static void vx_watch(int n) {
     for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
         if (![sc isKindOfClass:[UIWindowScene class]]) continue;
         UIWindowScene *ws = (UIWindowScene *)sc;
-
         if (!vxWin && ws.activationState != UISceneActivationStateUnattached) vx_build(ws);
-
-        // for (UIWindow *w in ws.windows) {
-        //     if (w == vxWin) continue;
-        //     vx_veil(w.rootViewController.view);
-        // }
     }
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.004 * NSEC_PER_SEC)),
@@ -119,6 +112,8 @@ static NSOperatingSystemVersion vxOSV(id self, SEL _cmd) {
 
 __attribute__((constructor))
 static void vx_init(void) {
+    VXGateInstall();
+
     Method m = class_getInstanceMethod([UIWindow class], @selector(makeKeyAndVisible));
     if (m) {
         vxOrigMKAV = (void (*)(id, SEL))method_getImplementation(m);
@@ -132,7 +127,6 @@ static void vx_init(void) {
     if (osv) method_setImplementation(osv, (IMP)vxOSV);
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        VXGateInstall();
         vx_cover();
         vx_watch(0);
         [[NSNotificationCenter defaultCenter]
