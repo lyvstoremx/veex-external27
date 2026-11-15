@@ -1,6 +1,6 @@
 //
 //  VXGate.swift
-//  Sube el techo de la tabla de versiones, página por página, con ejecución.
+//  Sube el techo de la tabla de versiones en todos los segmentos.
 //
 
 import Darwin
@@ -73,73 +73,64 @@ enum VXGate {
         return out
     }
 
-    private static func sweep() -> (Int, Int) {
-        guard let hdr = _dyld_get_image_header(0), hdr.pointee.magic == MH_MAGIC_64 else { return (0, 0) }
+    private static func barrido(_ raw: UnsafeMutableRawPointer, _ size: Int) -> Int {
+        let start = UInt(bitPattern: raw)
+        let prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE
+        var patched = 0
+        var p = 0
+        while p * 0x1000 < size {
+            let pg = start &+ UInt(p) * 0x1000
+            if vm_protect(mach_task_self_, vm_address_t(pg), vm_size_t(0x1000),
+                          boolean_t(0), prot) == KERN_SUCCESS {
+                let from = p * 0x1000
+                let to = min(from + 0x1000, size)
+                let b = raw.assumingMemoryBound(to: UInt8.self)
+                var i = from
+                while i + 4 < to {
+                    if b[i] == 0x32, b[i + 1] == 0x37, b[i + 2] == 0x2E, b[i + 3] == 0x32 {
+                        let next = b[i + 4]
+                        if next == 0x20 || next == 0x29 || next == 0x00 {
+                            b[i + 3] = 0x33
+                            patched += 1
+                            i += 5
+                            continue
+                        }
+                    }
+                    i += 1
+                }
+            }
+            p += 1
+        }
+        if patched > 0 { icache?(UnsafeRawPointer(raw), size) }
+        return patched
+    }
+
+    static func install() {
+        log("vx: gate inicio")
+        guard let hdr = _dyld_get_image_header(0), hdr.pointee.magic == MH_MAGIC_64 else { return }
         let base = UnsafeRawPointer(hdr)
         var cursor = base.advanced(by: MemoryLayout<mach_header_64>.size)
-
-        var textVm: UInt = 0
-        var textSize = 0
-        var found = false
+        var total = 0
 
         for _ in 0..<Int(hdr.pointee.ncmds) {
             let cmd = cursor.assumingMemoryBound(to: load_command.self)
             if cmd.pointee.cmd == UInt32(LC_SEGMENT_64) {
                 let seg = cursor.assumingMemoryBound(to: segment_command_64.self)
-                if segName(seg) == "__TEXT" {
-                    textVm = UInt(seg.pointee.vmaddr)
-                    textSize = Int(seg.pointee.filesize)
-                    found = true
+                let n = segName(seg)
+                let size = Int(seg.pointee.filesize)
+                if size > 8, size < 80_000_000, n != "__PAGEZERO" {
+                    if let raw = UnsafeMutableRawPointer(bitPattern: UInt(bitPattern: base) &+ UInt(seg.pointee.vmaddr) &- UInt(seg.pointee.vmaddr)) {
+                        let r = barrido(raw.advanced(by: Int(seg.pointee.vmaddr)), size)
+                        log("vx: seg \(n) \(size) → \(r)")
+                        total += r
+                    }
                 }
             }
             guard cmd.pointee.cmdsize > 0 else { break }
             cursor = cursor.advanced(by: Int(cmd.pointee.cmdsize))
         }
-        guard found, textSize > 8 else { return (0, 0) }
 
-        let start = UInt(bitPattern: base)
-        guard let raw = UnsafeMutableRawPointer(bitPattern: start) else { return (0, 0) }
-
-        let prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE
-
-        var patched = 0
-        var denied = 0
-        let pages = (textSize + 0xFFF) / 0x1000
-
-        for p in 0..<pages {
-            let pg = start &+ UInt(p) * 0x1000
-            let kr = vm_protect(mach_task_self_, vm_address_t(pg), vm_size_t(0x1000),
-                                boolean_t(0), prot)
-            if kr != KERN_SUCCESS {
-                denied += 1
-                continue
-            }
-            let from = p * 0x1000
-            let to = min(from + 0x1000, textSize)
-            let b = raw.assumingMemoryBound(to: UInt8.self)
-            var i = from
-            while i + 4 < to {
-                if b[i] == 0x32, b[i + 1] == 0x37, b[i + 2] == 0x2E, b[i + 3] == 0x32 {
-                    let next = b[i + 4]
-                    if next == 0x20 || next == 0x29 || next == 0x00 {
-                        b[i + 3] = 0x33
-                        patched += 1
-                        i += 5
-                        continue
-                    }
-                }
-                i += 1
-            }
-        }
-
-        if patched > 0 { icache?(UnsafeRawPointer(raw), textSize) }
-        return (patched, denied)
-    }
-
-    static func install() {
-        log("vx: gate inicio")
-        let (n, denied) = sweep()
-        log("vx: gate parches \(n) · paginas negadas \(denied)")
+        log("vx: gate parches \(total)")
         log("vx: gate supportpolicy \(locate(["SupportPolicy"]).count)")
     }
 }
