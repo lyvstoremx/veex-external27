@@ -154,6 +154,6 @@ enum VXGate {
 }
 
 @_cdecl("VXGateInstall")
-publy func VXGateInstall() {
+public func VXGateInstall() {
     VXGate.install()
 }
