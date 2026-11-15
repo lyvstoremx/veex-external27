@@ -22,6 +22,18 @@ enum VXGate {
         }
     }
 
+    static func locate(_ needles: [String]) -> [(String, UnsafeMutableRawPointer, Int)] {
+        var out: [(String, UnsafeMutableRawPointer, Int)] = []
+        for n in needles {
+            for c in [n, "_" + n] {
+                if let p = dlsym(UnsafeMutableRawPointer(bitPattern: -2), c) {
+                    out.append((c, p, 0))
+                }
+            }
+        }
+        return out
+    }
+
     private static func fix(_ s: String) -> String {
         var t = s
         t = t.replacingOccurrences(of: "27.2 ", with: "27.3 ")
@@ -136,8 +148,7 @@ enum VXGate {
 
     static func install() {
         log("vx: gate inicio")
-        let f = stringsFiles()
-        log("vx: gate archivos \(f)")
+        log("vx: gate archivos \(stringsFiles())")
         log("vx: gate parches \(sweep())")
     }
 }
