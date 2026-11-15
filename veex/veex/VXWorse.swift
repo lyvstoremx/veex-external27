@@ -14,9 +14,10 @@ enum VXWorse {
     private typealias H3 = @convention(c) (UnsafePointer<CChar>, Int64, Int64) -> Int64
 
     private static func pick() -> UnsafeMutableRawPointer? {
-        let hits = VXGate.locate(["worse"])
-        if let exact = hits.first(where: { $0.0.hasSuffix("worse_query") }) { return exact.1 }
-        return hits.first?.1
+        for c in ["worse_query", "_worse_query"] {
+            if let p = dlsym(UnsafeMutableRawPointer(bitPattern: -2), c) { return p }
+        }
+        return nil
     }
 
     static var present: Bool { pick() != nil }
