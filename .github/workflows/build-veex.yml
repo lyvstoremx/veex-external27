@@ -235,6 +235,31 @@ jobs:
           cp "$XC/i1024.png" work/iTunesArtwork@3x
           echo "iconos de instalador listos"
 
+      - name: Parche version
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          APP=$(ls -d work/Payload/*.app | head -1)
+          BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          python3 - "$BIN" <<'PY'
+          import sys
+          p = sys.argv[1]
+          d = bytearray(open(p, 'rb').read())
+          n = 0
+          i = 0
+          while True:
+              j = d.find(b'27.2', i)
+              if j < 0:
+                  break
+              nxt = d[j + 4:j + 5]
+              if nxt in (b' ', b')', b'\x00'):
+                  d[j + 3] = 0x33
+                  n += 1
+              i = j + 4
+          open(p, 'wb').write(d)
+          print('parches', n)
+          PY
+
       - name: Firmar
         run: |
           set -e
