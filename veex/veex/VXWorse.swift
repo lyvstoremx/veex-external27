@@ -55,6 +55,10 @@ enum VXWorse {
     }
 
     static func grant(_ path: String) -> Int64 {
+        log("vx: pairing \(VXEngine.pairing() ?? "no")")
+        log("vx: pin \(VXEngine.pin() ?? "no")")
+        for l in VXEngine.findPairing().prefix(12) { log("vx: par \(l)") }
+
         guard present else { log("vx: sin símbolo worse"); return -1 }
         let c = strdup(path)!
         defer { free(c) }
